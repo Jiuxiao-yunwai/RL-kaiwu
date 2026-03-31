@@ -59,18 +59,9 @@ class Agent(BaseAgent):
     @exploit_wrapper
     def exploit(self, list_obs_data):
         state = list_obs_data[0].feature
-        # Old code (kept for comparison):
-        # act = np.argmax(self.algorithm.Q[state, :])
-        # New code: random tie-break among best actions to avoid argmax first-index bias.
-        act = self._greedy_action(state)
+        act = np.argmax(self.algorithm.Q[state, :])
 
         return [ActData(act=act)]
-
-    def _greedy_action(self, state):
-        # New helper: choose uniformly from all actions that share the max Q value.
-        q_row = self.algorithm.Q[state, :]
-        best_actions = np.flatnonzero(q_row == np.max(q_row))
-        return int(np.random.choice(best_actions))
 
     def _epsilon_greedy(self, state, epsilon=0.1):
         """
@@ -94,13 +85,10 @@ class Agent(BaseAgent):
             随机打破平局,在某些情况下，当有多个动作或策略具有相同的评估值或优先级时，需要进行决策。
             为了避免总是选择第一个动作或策略，可以使用随机选择的方法来打破平局。以增加多样性和随机性
             """
-            # Old code (kept for comparison):
-            # if np.all(self.algorithm.Q[state, :]) == self.algorithm.Q[state, 0]:
-            #     action = np.random.randint(0, self.action_size)
-            # else:
-            #     action = np.argmax(self.algorithm.Q[state, :])
-            # New code: directly use stable greedy helper with random tie-break.
-            action = self._greedy_action(state)
+            if np.all(self.algorithm.Q[state, :]) == self.algorithm.Q[state, 0]:
+                action = np.random.randint(0, self.action_size)
+            else:
+                action = np.argmax(self.algorithm.Q[state, :])
 
         return action
 
@@ -108,42 +96,69 @@ class Agent(BaseAgent):
     def learn(self, list_sample_data):
         return self.algorithm.learn(list_sample_data)
 
-    def _extract_treasure_status(self, raw_obs, game_info):
-        # New helper: robustly extract treasure status from game_info first,
-        # then fallback to raw_obs when game_info misses this field.
-        treasure_status = getattr(game_info, "treasure_status", None)
-        if treasure_status is None:
-            feature = getattr(raw_obs, "feature", raw_obs)
-            feature = np.asarray(feature).reshape(-1)
-            if feature.size >= 10:
-                treasure_status = feature[-10:]
-            else:
-                treasure_status = np.zeros(10, dtype=np.int32)
-
-        treasure_status = np.asarray(treasure_status).reshape(-1)
-        if treasure_status.size < 10:
-            padded = np.zeros(10, dtype=np.int32)
-            padded[: treasure_status.size] = treasure_status
-            treasure_status = padded
-
-        treasure_status = [0 if int(x) == 2 else int(x) for x in treasure_status[:10]]
-        return treasure_status
-
     def observation_process(self, raw_obs, game_info):
-        # Old code (kept for comparison, short form):
-        # 1) build full 250-dim feature by concatenating state/one-hot/dist/local_view/memory/treasure_status
-        # 2) pos = int(raw_obs[0]); treasure_status = raw_obs[-10:]
-        # 3) state = 1024 * pos + sum([treasure_status[i] * (2**i) for i in range(10)])
-        # New code: directly build state from reliable env fields (pos_x, pos_z, treasure_status),
-        # reducing coupling to raw feature layout and making observation parsing more robust.
-        pos_x = int(np.clip(getattr(game_info, "pos_x", 0), 0, 63))
-        pos_z = int(np.clip(getattr(game_info, "pos_z", 0), 0, 63))
-        pos = pos_x * 64 + pos_z
+        pos = [game_info.pos_x, game_info.pos_z]
+        # Feature #1: Current state of the agent (1-dimensional representation)
+        # 特征#1: 智能体当前 state (1维表示)
+        state = [int(pos[0] * 64 + pos[1])]
+        # Feature #2: One-hot encoding of the agent's current position
+        # 特征#2: 智能体当前位置信息的 one-hot 编码
+        pos_row = [0] * 64
+        pos_row[pos[0]] = 1
+        pos_col = [0] * 64
+        pos_col[pos[1]] = 1
 
-        # Q-learning state uses position + treasure mask for better Markov property.
-        treasure_status = self._extract_treasure_status(raw_obs, game_info)
-        treasure_mask = sum([treasure_status[i] * (2**i) for i in range(10)])
-        state = 1024 * pos + treasure_mask
+        # Feature #3: Discretized distance of the agent's current position from the endpoint
+        # 特征#3: 智能体当前位置相对于终点的距离(离散化)
+        # Feature #4: Discretized distance of the agent's current position from the treasure
+        # 特征#4: 智能体当前位置相对于宝箱的距离(离散化)
+        end_treasure_dists = raw_obs
+
+        # Feature #5: Graph features generation (obstacle information, treasure information, endpoint information)
+        # 特征#5: 图特征生成(障碍物信息, 宝箱信息, 终点信息)
+        local_view = [game_info.local_view[i : i + 5] for i in range(0, len(game_info.local_view), 5)]
+        obstacle_map, treasure_map, end_map = [], [], []
+        for sub_list in local_view:
+            obstacle_map.append([1 if i == 0 else 0 for i in sub_list])
+            treasure_map.append([1 if i == 4 else 0 for i in sub_list])
+            end_map.append([1 if i == 3 else 0 for i in sub_list])
+
+        # Feature #6: Conversion of graph features into vector features
+        # 特征#6: 图特征转换为向量特征
+        obstacle_flat, treasure_flat, end_flat = [], [], []
+        for i in obstacle_map:
+            obstacle_flat.extend(i)
+        for i in treasure_map:
+            treasure_flat.extend(i)
+        for i in end_map:
+            end_flat.extend(i)
+
+        # Feature #7: Information of the map areas visited within the agent's current local view
+        # 特征#7: 智能体当前局部视野中的走过的地图信息
+        memory_flat = []
+        for i in range(game_info.view * 2 + 1):
+            idx_start = (pos[0] - game_info.view + i) * 64 + (pos[1] - game_info.view)
+            memory_flat.extend(game_info.location_memory[idx_start : (idx_start + game_info.view * 2 + 1)])
+
+        tmp_treasure_status = [x if x != 2 else 0 for x in game_info.treasure_status]
+
+        raw_obs = np.concatenate(
+            [
+                state,
+                pos_row,
+                pos_col,
+                end_treasure_dists,
+                obstacle_flat,
+                treasure_flat,
+                end_flat,
+                memory_flat,
+                tmp_treasure_status,
+            ]
+        )
+
+        pos = int(raw_obs[0])
+        treasure_status = [int(item) for item in raw_obs[-10:]]
+        state = 1024 * pos + sum([treasure_status[i] * (2**i) for i in range(10)])
 
         return ObsData(feature=int(state))
 

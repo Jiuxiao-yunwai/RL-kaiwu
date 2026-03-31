@@ -117,20 +117,11 @@ def workflow(envs, agents, logger=None, monitor=None):
 
             # Updating data and generating frames for training
             # 数据更新, 生成训练需要的 frame
-            # Old code (kept for comparison):
-            # sample = Frame(
-            #     state=obs_data.feature,
-            #     action=act,
-            #     reward=reward,
-            #     next_state=_obs_data.feature,
-            # )
-            # New code: include done so terminal transition can be learned correctly.
             sample = Frame(
                 state=obs_data.feature,
                 action=act,
                 reward=reward,
                 next_state=_obs_data.feature,
-                done=done,
             )
 
             # Sample processing
@@ -144,10 +135,6 @@ def workflow(envs, agents, logger=None, monitor=None):
             # Update total reward and state
             # 更新总奖励和状态
             total_rew += reward
-            # Old code (kept for comparison):
-            # obs_data = _obs_data
-            # New code: update obs each step so reward_shaping compares consecutive frames.
-            obs = _obs
             obs_data = _obs_data
 
         # Reporting training progress
