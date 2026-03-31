@@ -11,7 +11,10 @@ Author: Tencent AI Arena Authors
 from kaiwu_agent.utils.common_func import create_cls, attached
 
 
-SampleData = create_cls("SampleData", state=None, action=None, reward=None, next_state=None)
+# Old code (kept for comparison):
+# SampleData = create_cls("SampleData", state=None, action=None, reward=None, next_state=None)
+# New code: add done field so algorithm.learn can stop bootstrapping on terminal transitions.
+SampleData = create_cls("SampleData", state=None, action=None, reward=None, next_state=None, done=None)
 
 
 @attached
