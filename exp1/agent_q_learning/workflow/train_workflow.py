@@ -11,7 +11,6 @@ Author: Tencent AI Arena Authors
 from kaiwu_agent.utils.common_func import Frame
 from kaiwu_agent.utils.common_func import attached
 import time
-import math
 from agent_q_learning.feature.definition import (
     sample_process,
     reward_shaping,
@@ -83,11 +82,13 @@ def workflow(envs, agents, logger=None, monitor=None):
 
         # Task loop
         # 任务循环
-        done, agent.epsilon = False, 1.0
+        # Decay epsilon once per episode: starts at 1.0, converges to 0.05 faster
+        # than the original per-step schedule so the agent exploits learned Q-values sooner.
+        agent.epsilon = max(0.05, 1.0 * (0.995 ** episode))
+        done = False
         while not done:
             # Agent performs inference to obtain the predicted action for the next frame
             # Agent 进行推理, 获取下一帧的预测动作
-            agent.epsilon = max(0.1, agent.epsilon * math.exp(-(1 / EPISODES) * episode))
             act_data, model_version = agent.predict(list_obs_data=[obs_data])
             act_data = act_data[0]
 

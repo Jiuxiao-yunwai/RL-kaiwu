@@ -14,8 +14,8 @@ class Config:
 
     STATE_SIZE = 64 * 64 * 1024
     ACTION_SIZE = 4
-    LEARNING_RATE = 0.8
-    GAMMA = 0.9
+    LEARNING_RATE = 0.9
+    GAMMA = 0.95
     EPSILON = 0.1
     EPISODES = 10000
 
