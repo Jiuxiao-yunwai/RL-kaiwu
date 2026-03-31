@@ -11,12 +11,12 @@ cloudpickle==3.1.1
 # common-python @ file:///data/projects/gorge_walk/dist/common_python-0.0.1-py3-none-any.whl#sha256=07c65e88af598cde547ba9ee19e9fe5496903ca1d7d49b928323277b1e37a23b
 cos-python-sdk-v5==1.9.15
 crcmod==1.7
-cryptography==42.0.5
+cryptography==46.0.5
 dicttoxml==1.7.16
 dill==0.3.7
 dm-reverb==0.12.0
 dm-tree==0.1.8
-dynaconf==3.2.1
+dynaconf==3.2.13
 filelock==3.13.1
 flatbuffers==24.3.25
 gast==0.4.0
@@ -33,7 +33,7 @@ idna==3.7
 influxdb==5.3.1
 iniconfig==2.0.0
 Jinja2==3.1.3
-keras==2.13.1
+keras==3.12.1
 libclang==18.1.1
 libcomps==0.1.19
 linecache2==1.0.0
@@ -56,7 +56,7 @@ numba==0.59.0
 numpy==1.23.5
 oauthlib==3.2.2
 onnx==1.17.0
-opencv-python==4.5.5.64
+opencv-python==4.8.1.78
 opt-einsum==3.3.0
 ordereddict==1.1
 packaging==21.3
@@ -65,10 +65,10 @@ pluggy==1.5.0
 portpicker==1.6.0
 prettytable==3.10.0
 prometheus-client==0.16.0
-protobuf==4.25.0
+protobuf==4.25.8
 psutil==5.8.0
 py-spy==0.3.14
-pyasn1==0.6.0
+pyasn1==0.6.3
 pyasn1_modules==0.4.0
 pybind11==2.11.0
 pycparser==2.22
@@ -107,15 +107,15 @@ termcolor==2.4.0
 textual==2.1.2
 tf2onnx==1.16.1
 toml==0.10.2
-torch==2.0.1+cpu
+torch==2.6.0
 tqdm==4.65.0
 traceback2==1.4.0
 typeguard==4.4.2
 typing_extensions==4.12.2
 uc-micro-py==1.0.3
 unittest2==1.1.0
-urllib3==1.26.18
+urllib3==2.6.3
 wcwidth==0.2.13
 Werkzeug==3.0.3
 wrapt==1.16.0
-zstd==1.5.2.6
+zstd==1.5.4.0
