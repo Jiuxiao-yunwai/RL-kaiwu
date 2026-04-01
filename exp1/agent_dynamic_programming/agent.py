@@ -53,7 +53,7 @@ class Agent(BaseAgent):
         pos = [game_info.pos_x, game_info.pos_z]
         # Feature #1: Current state of the agent (1-dimensional representation)
         # 特征#1: 智能体当前 state (1维表示)
-        state = [int(pos[0] * 64 + pos[1])]
+        pos_state = [int(pos[0] * 64 + pos[1])]
         # Feature #2: One-hot encoding of the agent's current position
         # 特征#2: 智能体当前位置信息的 one-hot 编码
         pos_row = [0] * 64
@@ -69,17 +69,30 @@ class Agent(BaseAgent):
 
         raw_obs = np.concatenate(
             [
-                state,
+                pos_state,
                 pos_row,
                 pos_col,
                 end_treasure_dists,
             ]
         )
 
-        return ObsData(feature=int(raw_obs[0]))
+        treasure_status = []
+        if hasattr(game_info, "treasure_status") and game_info.treasure_status is not None:
+            treasure_status = [int(item) if int(item) != 2 else 0 for item in game_info.treasure_status]
+        elif len(raw_obs) >= 10:
+            treasure_status = [int(item) for item in raw_obs[-10:]]
+
+        if len(treasure_status) < 10:
+            treasure_status = treasure_status + [0] * (10 - len(treasure_status))
+        treasure_status = treasure_status[:10]
+
+        treasure_mask = sum(treasure_status[i] * (2**i) for i in range(10))
+        state = 1024 * int(raw_obs[0]) + treasure_mask
+
+        return ObsData(feature=int(state))
 
     def action_process(self, act_data):
-        pass
+        return act_data.act
 
     @save_model_wrapper
     def save_model(self, path=None, id="1"):

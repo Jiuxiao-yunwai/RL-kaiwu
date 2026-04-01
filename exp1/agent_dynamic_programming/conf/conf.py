@@ -12,9 +12,12 @@ Author: Tencent AI Arena Authors
 # 关于维度的配置
 class Config:
 
-    STATE_SIZE = 64 * 64
+    MAP_SIZE = 64 * 64
+    TREASURE_NUM = 10
+    TREASURE_MASK_SIZE = 2 ** TREASURE_NUM
+    STATE_SIZE = MAP_SIZE * TREASURE_MASK_SIZE
     ACTION_SIZE = 4
-    GAMMA = 0.9
+    GAMMA = 0.99
     THETA = 1e-3
     EPISODES = 100
 

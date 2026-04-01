@@ -20,7 +20,8 @@ class Algorithm:
         self.theta = theta
         self.episodes = episodes
 
-        self.agent_policy = np.ones([self.state_size, self.action_size]) / self.action_size
+        self.agent_policy = np.ones([self.state_size, self.action_size], dtype=np.float32) / self.action_size
+        self.active_states = np.array([], dtype=np.int32)
 
         # select algorithm (value_iteration or policy_iteration)
         # 选择DP算法类型
@@ -29,6 +30,8 @@ class Algorithm:
 
     def learn(self, F):
         assert self.algo in ["policy_iteration", "value_iteration"], "Invalid algorithm"
+
+        self.active_states = np.array(sorted(int(state) for state in F.keys()), dtype=np.int32)
 
         if self.algo == "policy_iteration":
             self.policy_iteration(F)
@@ -62,7 +65,7 @@ class Algorithm:
                 - policy (np.array): 最优策略
                 - V (np.array): 最优状态值数组
         """
-        policy = np.ones([self.state_size, self.action_size]) / self.action_size
+        policy = np.ones([self.state_size, self.action_size], dtype=np.float32) / self.action_size
 
         i = 0
         while i < self.episodes:
@@ -110,13 +113,13 @@ class Algorithm:
                 - policy (np.array): 最优策略
                 - V (np.array): 最优状态值数组
         """
-        V = np.zeros(self.state_size)
+        V = np.zeros(self.state_size, dtype=np.float32)
 
         i = 0
         while i < self.episodes:
             delta = 0
 
-            for state in range(self.state_size):
+            for state in self.active_states:
                 v = V[state]
 
                 V[state] = max(self._get_value(state, action, F, V) for action in range(self.action_size))
@@ -127,11 +130,12 @@ class Algorithm:
                 self.episodes_self = i
                 break
 
-            policy = self.policy_improvement(self.q_value_iteration(V, F))
-
             if i % 10 == 0:
                 self.logger.info("Iteration {}".format(i))
             i += 1
+
+        # Derive greedy policy only once from converged V.
+        policy = self.policy_improvement(self.q_value_iteration(V, F))
 
         self.agent_policy = policy
 
@@ -162,14 +166,14 @@ class Algorithm:
         """
         # Initialize state-value array (16,)
         # 初始化状态价值数组 (16,)
-        V = np.zeros(self.state_size)
+        V = np.zeros(self.state_size, dtype=np.float32)
         delta = self.theta + 1
 
         while delta > self.theta:
             delta = 0
             # Loop over all states
             # 遍历所有状态
-            for state in range(self.state_size):
+            for state in self.active_states:
                 v = 0
                 # Loop over all actions fot the given state
                 # 遍历给定状态的所有动作
@@ -207,9 +211,9 @@ class Algorithm:
         返回:
             Q (np.array): 给定状态-动作对的动作值数组
         """
-        Q = np.zeros([self.state_size, self.action_size])
+        Q = np.zeros([self.state_size, self.action_size], dtype=np.float32)
 
-        for state in range(self.state_size):
+        for state in self.active_states:
             for action in range(self.action_size):
                 Q[state][action] = self._get_value(state, action, F, V)
 
@@ -230,9 +234,9 @@ class Algorithm:
         """
         # Blank policy initialized with zeros
         # 初始化policy
-        policy = np.zeros([self.state_size, self.action_size])
+        policy = np.zeros([self.state_size, self.action_size], dtype=np.float32)
 
-        for state in range(self.state_size):
+        for state in self.active_states:
             action_values = Q[state]
 
             # Update policy
@@ -266,14 +270,16 @@ class Algorithm:
         返回:
             value (浮点数): 状态-动作对的值
         """
-        value = 0
+        state_transitions = F.get(str(state))
+        if state_transitions is None:
+            return 0
 
-        try:
-            next_state, reward, _ = F[str(state)][str(action)]
-            if reward == 0:
-                reward = -1
-            value = reward + self.gamma * V[next_state]
-        except KeyError:
-            pass
+        transition = state_transitions.get(str(action))
+        if transition is None:
+            return 0
 
-        return value
+        next_state, reward, done = transition
+        if reward == 0:
+            reward = -1
+
+        return reward if done else reward + self.gamma * V[next_state]

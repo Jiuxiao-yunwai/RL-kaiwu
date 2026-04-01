@@ -11,9 +11,118 @@ Author: Tencent AI Arena Authors
 from kaiwu_agent.utils.common_func import attached
 import time
 import os
+from collections import deque
 from tools.map_data_utils import read_map_data
 from tools.train_env_conf_validate import check_usr_conf, read_usr_conf
 from tools.metrics_utils import get_training_metrics
+
+
+TREASURE_ID_TO_POS = {
+    0: (19, 14),
+    1: (9, 28),
+    2: (9, 44),
+    3: (42, 45),
+    4: (32, 23),
+    5: (49, 56),
+    6: (35, 58),
+    7: (23, 55),
+    8: (41, 33),
+    9: (54, 41),
+}
+
+ALL_TREASURE_IDS = list(range(10))
+TREASURE_REWARD = 100
+# Strongly discourage ending the episode before collecting all configured treasures.
+INCOMPLETE_FINISH_PENALTY = 1000
+# Give a terminal bonus if all configured treasures are collected before finishing.
+ALL_TREASURE_FINISH_BONUS = 1000
+
+
+def _pos_to_state(pos):
+    return int(pos[0] * 64 + pos[1])
+
+
+def _parse_enabled_treasure_ids(usr_conf):
+    env_conf = usr_conf.get("env_conf")
+    if env_conf is None:
+        # Keep compatibility with distributed workflow config layout.
+        env_conf = usr_conf.get("diy", {}).get("start", [{}])[0]
+
+    treasure_ids = env_conf.get("treasure_id", [])
+    treasure_random = env_conf.get("treasure_random", False)
+
+    # Dynamic programming training uses a fixed transition graph; random treasure placement is not modeled.
+    # In random mode we still encode all 10 treasure locations for deterministic planning.
+    if treasure_random:
+        return ALL_TREASURE_IDS
+
+    if not treasure_ids:
+        return ALL_TREASURE_IDS
+
+    valid_ids = [int(t_id) for t_id in treasure_ids if int(t_id) in TREASURE_ID_TO_POS]
+    return valid_ids or ALL_TREASURE_IDS
+
+
+def _parse_start_state(usr_conf):
+    env_conf = usr_conf.get("env_conf")
+    if env_conf is None:
+        env_conf = usr_conf.get("diy", {}).get("start", [{}])[0]
+
+    start = env_conf.get("start", [29, 9])
+    if not isinstance(start, (list, tuple)) or len(start) != 2:
+        start = [29, 9]
+
+    return _pos_to_state((int(start[0]), int(start[1])))
+
+
+def _build_augmented_map_data(base_map_data, enabled_treasure_ids, start_pos_state):
+    treasure_pos_to_bit = {
+        _pos_to_state(TREASURE_ID_TO_POS[t_id]): t_id for t_id in enabled_treasure_ids
+    }
+    enabled_mask = 0
+    for t_id in enabled_treasure_ids:
+        enabled_mask |= 1 << t_id
+
+    init_aug_state = 1024 * int(start_pos_state) + enabled_mask
+
+    augmented_map_data = {}
+    visited = {init_aug_state}
+    queue = deque([init_aug_state])
+
+    # Build only states reachable from the configured start and initial treasure mask.
+    while queue:
+        aug_state = queue.popleft()
+        pos = aug_state // 1024
+        mask = aug_state % 1024
+
+        actions = base_map_data.get(str(pos), {})
+        aug_actions = {}
+        for action, transition in actions.items():
+            next_pos, reward, done = transition
+            next_mask = mask
+
+            if next_pos in treasure_pos_to_bit:
+                bit = treasure_pos_to_bit[next_pos]
+                if (mask >> bit) & 1:
+                    next_mask &= ~(1 << bit)
+                    reward += TREASURE_REWARD
+
+            if done:
+                if next_mask != 0:
+                    reward -= INCOMPLETE_FINISH_PENALTY
+                else:
+                    reward += ALL_TREASURE_FINISH_BONUS
+
+            next_state = 1024 * int(next_pos) + next_mask
+            aug_actions[action] = [next_state, reward, done]
+
+            if not done and next_state not in visited:
+                visited.add(next_state)
+                queue.append(next_state)
+
+        augmented_map_data[str(aug_state)] = aug_actions
+
+    return augmented_map_data
 
 
 @attached
@@ -57,7 +166,15 @@ def workflow(envs, agents, logger=None, monitor=None):
         logger.error(f"map_data from file {map_data_file} failed, please check")
         return
 
-    agent.learn(map_data)
+    enabled_treasure_ids = _parse_enabled_treasure_ids(usr_conf)
+    start_pos_state = _parse_start_state(usr_conf)
+    augmented_map_data = _build_augmented_map_data(map_data, enabled_treasure_ids, start_pos_state)
+
+    logger.info(f"Dynamic programming enabled treasure ids: {enabled_treasure_ids}")
+    logger.info(f"Dynamic programming start state: {start_pos_state}")
+    logger.info(f"Augmented transition states: {len(augmented_map_data)}")
+
+    agent.learn(augmented_map_data)
 
     logger.info(f"Training time cost: {time.time() - start_t} s")
 
