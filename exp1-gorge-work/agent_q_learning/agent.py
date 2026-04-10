@@ -157,8 +157,20 @@ class Agent(BaseAgent):
         )
 
         pos = int(raw_obs[0])
-        treasure_status = [int(item) for item in raw_obs[-10:]]
-        state = 1024 * pos + sum([treasure_status[i] * (2**i) for i in range(10)])
+        end_dist = int(np.clip(raw_obs[129], 0, 6))
+
+        treasure_dists = np.array(raw_obs[130:140], dtype=np.float32)
+        valid_treasure_dists = treasure_dists[treasure_dists < 999]
+        if valid_treasure_dists.size > 0:
+            nearest_treasure_dist = int(np.clip(np.min(valid_treasure_dists), 0, 6))
+        else:
+            # Use 7 to represent "no visible/generated treasure" in current state abstraction.
+            nearest_treasure_dist = 7
+
+        treasure_status = np.array([int(item) for item in raw_obs[-10:]], dtype=np.int32)
+        remaining_treasure_cnt = int(np.clip(np.sum(treasure_status), 0, 10))
+
+        state = (((pos * 7 + end_dist) * 8 + nearest_treasure_dist) * 11) + remaining_treasure_cnt
 
         return ObsData(feature=int(state))
 

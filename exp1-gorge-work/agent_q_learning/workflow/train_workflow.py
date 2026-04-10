@@ -11,7 +11,6 @@ Author: Tencent AI Arena Authors
 from kaiwu_agent.utils.common_func import Frame
 from kaiwu_agent.utils.common_func import attached
 import time
-import math
 from agent_q_learning.feature.definition import (
     sample_process,
     reward_shaping,
@@ -45,6 +44,9 @@ def workflow(envs, agents, logger=None, monitor=None):
         0,
         0,
     )
+    agent.epsilon = 1.0
+    epsilon_min = 0.05
+    epsilon_decay = 0.9995
 
     # Read and validate configuration file
     # 配置文件读取和校验
@@ -83,11 +85,11 @@ def workflow(envs, agents, logger=None, monitor=None):
 
         # Task loop
         # 任务循环
-        done, agent.epsilon = False, 1.0
+        done, prev_score = False, 0
         while not done:
             # Agent performs inference to obtain the predicted action for the next frame
             # Agent 进行推理, 获取下一帧的预测动作
-            agent.epsilon = max(0.1, agent.epsilon * math.exp(-(1 / EPISODES) * episode))
+            agent.epsilon = max(epsilon_min, agent.epsilon * epsilon_decay)
             act_data, model_version = agent.predict(list_obs_data=[obs_data])
             act_data = act_data[0]
 
@@ -107,7 +109,7 @@ def workflow(envs, agents, logger=None, monitor=None):
 
             # Compute reward
             # 计算 reward
-            reward = reward_shaping(frame_no, score, terminated, truncated, obs, _obs)
+            reward = reward_shaping(frame_no, score, prev_score, terminated, truncated, obs, _obs)
 
             # Determine over and update the win count
             # 判断结束, 并更新胜利次数
@@ -135,6 +137,8 @@ def workflow(envs, agents, logger=None, monitor=None):
             # Update total reward and state
             # 更新总奖励和状态
             total_rew += reward
+            prev_score = score
+            obs = _obs
             obs_data = _obs_data
 
         # Reporting training progress

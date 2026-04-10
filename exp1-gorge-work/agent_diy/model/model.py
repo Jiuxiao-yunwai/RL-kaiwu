@@ -8,16 +8,24 @@ Author: Tencent AI Arena Authors
 """
 
 
-import torch
-import numpy as np
 from torch import nn
-import torch.nn.functional as F
-from kaiwu_agent.utils.common_func import attached
 
 
 class Model(nn.Module):
     def __init__(self, state_shape, action_shape):
         super().__init__()
 
-        # User-defined network
-        # 用户自定义网络
+        state_dim = int(state_shape)
+        action_dim = int(action_shape)
+
+        # 用户自定义网络（MLP）
+        self.net = nn.Sequential(
+            nn.Linear(state_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, action_dim),
+        )
+
+    def forward(self, x):
+        return self.net(x)

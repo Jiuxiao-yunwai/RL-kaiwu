@@ -25,7 +25,7 @@ treasure_id = []
 # Description: Number of chests.
 # Only works when treasure_random = true.
 # 生成随机宝箱时的宝箱数量，仅在treasure_random = true时生效，整型，取值范围为0~10，默认值为0。
-treasure_count = 0
+treasure_count = 10
 
 # Is the chest random, boolean, false - fixed chest, true - random chest
 # If fixed is enabled, use treasure_id to generate fixed chests.
@@ -36,7 +36,7 @@ treasure_count = 0
 # 若开启固定，则使用treasure_id生成固定宝箱。
 # 若开启随机，则使用treasure_count生成随机宝箱。
 # 默认值为false。
-treasure_random = false
+treasure_random = true
 
 # Integer, Value range: 1~2000, default: 2000
 # Description: Max step
