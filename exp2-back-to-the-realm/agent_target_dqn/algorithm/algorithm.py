@@ -30,6 +30,8 @@ class Algorithm:
         self.epsilon = Config.EPSILON
         self.egp = Config.EPSILON_GREEDY_PROBABILITY
         self.target_update_freq = Config.TARGET_UPDATE_FREQ
+        self.soft_update_tau = Config.SOFT_UPDATE_TAU
+        self.use_double_dqn = Config.USE_DOUBLE_DQN
         self.obs_split = Config.DESC_OBS_SPLIT
         self._gamma = Config.GAMMA
         self.lr = Config.START_LR
@@ -87,12 +89,21 @@ class Algorithm:
             self.__convert_to_tensor(_batch_feature_map).view(batch, *self.obs_split[1]),
         ]
 
-        model = getattr(self, "target_model")
-        model.eval()
+        target_model = self.target_model
+        target_model.eval()
         with torch.no_grad():
-            q, h = model(_batch_feature, state=None)
-            q = q.masked_fill(~_batch_obs_legal, float(torch.min(q)))
-            q_max = q.max(dim=1).values.detach()
+            target_q_logits, _ = target_model(_batch_feature, state=None)
+            target_q_logits = target_q_logits.masked_fill(~_batch_obs_legal, -1e9)
+
+            if self.use_double_dqn:
+                online_model = self.model
+                online_model.eval()
+                online_q_logits, _ = online_model(_batch_feature, state=None)
+                online_q_logits = online_q_logits.masked_fill(~_batch_obs_legal, -1e9)
+                next_action = online_q_logits.argmax(dim=1, keepdim=True)
+                q_max = target_q_logits.gather(1, next_action).view(-1).detach()
+            else:
+                q_max = target_q_logits.max(dim=1).values.detach()
 
         target_q = rew + self._gamma * q_max * not_done
 
@@ -112,6 +123,7 @@ class Algorithm:
 
         # Update the target network
         # 更新target网络
+        self.soft_update_target_q()
         if self.train_step % self.target_update_freq == 0:
             self.update_target_q()
 
@@ -138,7 +150,7 @@ class Algorithm:
         if isinstance(data, list):
             data = [np.array(item, dtype=np.float32) for item in data]
         elif isinstance(data, np.ndarray):
-            if data.dtype == np.object:
+            if data.dtype == np.object_:
                 data = data.astype(np.float32)
             else:
                 data = data.astype(np.float32)
@@ -167,10 +179,10 @@ class Algorithm:
         )
         model = self.model
         model.eval()
-        # Exploration factor,
-        # we want epsilon to decrease as the number of prediction steps increases, until it reaches 0.1
-        # 探索因子, 我们希望epsilon随着预测步数越来越小，直到0.1为止
-        self.epsilon = max(self.min_epsilon, self.epsilon_start - self.predict_count / self.egp)
+        # Linear epsilon decay to improve early exploration and later convergence.
+        # 线性衰减epsilon，前期探索充分，后期更快收敛。
+        decay_ratio = min(1.0, self.predict_count / self.egp)
+        self.epsilon = self.min_epsilon + (self.epsilon_start - self.min_epsilon) * (1.0 - decay_ratio)
 
         with torch.no_grad():
             # epsilon greedy
@@ -194,3 +206,15 @@ class Algorithm:
 
     def update_target_q(self):
         self.target_model.load_state_dict(self.model.state_dict())
+
+    def soft_update_target_q(self):
+        tau = self.soft_update_tau
+        with torch.no_grad():
+            target_state = self.target_model.state_dict()
+            online_state = self.model.state_dict()
+            for key, target_tensor in target_state.items():
+                online_tensor = online_state[key]
+                if target_tensor.dtype.is_floating_point:
+                    target_tensor.mul_(1.0 - tau).add_(online_tensor, alpha=tau)
+                else:
+                    target_tensor.copy_(online_tensor)

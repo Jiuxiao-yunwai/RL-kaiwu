@@ -271,9 +271,17 @@ def reward_shaping(
 
     if (hero_grid_pos[0], hero_grid_pos[1]) not in recent_position_map:
         reward_exploration = 1
+        pass_times = 0
     else:
         pass_times = recent_position_map[(hero_grid_pos[0], hero_grid_pos[1])]
         reward_exploration = max(-0.5 * pass_times, -10)
+
+    # Reward 5.4 Penalty for local stuck behavior (corner/low movement loop)
+    # 奖励5.4 局部卡位惩罚（墙角/低位移循环）
+    reward_stuck = 0
+    is_low_move = move_dist < 300
+    if pass_times >= 3 and (is_bump or is_low_move):
+        reward_stuck = min(0.8 + 0.2 * pass_times, 2.0)
 
     """
     Concatenation of rewards: Here are 10 rewards provided,
@@ -289,9 +297,10 @@ def reward_shaping(
         "reward_treasure": 1.0,
         "reward_flicker": 0.3,
         "reward_step": -0.001,
-        "reward_bump": -1.2,
-        "reward_memory": -0.005,
-        "reward_exploration": 0.03,
+        "reward_bump": -1.6,
+        "reward_memory": -0.015,
+        "reward_exploration": 0.08,
+        "reward_stuck": -1.0,
     }
 
     reward = [
@@ -306,6 +315,7 @@ def reward_shaping(
         reward_bump * reward_weight["reward_bump"],
         reward_memory * reward_weight["reward_memory"],
         reward_exploration * reward_weight["reward_exploration"],
+        reward_stuck * reward_weight["reward_stuck"],
     ]
 
     return (
@@ -315,6 +325,7 @@ def reward_shaping(
         reward_exploration * reward_weight["reward_exploration"],
         reward_treasure_dist * reward_weight["reward_treasure_dists"],
         reward_treasure * reward_weight["reward_treasure"],
+        reward_stuck * reward_weight["reward_stuck"],
     )
 
 
