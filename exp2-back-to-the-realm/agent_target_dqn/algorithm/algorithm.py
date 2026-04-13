@@ -12,6 +12,7 @@ import time
 import os
 import numpy as np
 import torch
+import torch.nn.functional as F
 from copy import deepcopy
 from agent_target_dqn.model.model import Model
 from agent_target_dqn.conf.conf import Config
@@ -24,6 +25,8 @@ class Algorithm:
         self.direction_space = Config.DIM_OF_ACTION_DIRECTION
         self.talent_direction = Config.DIM_OF_TALENT
         self.obs_shape = Config.DIM_OF_OBSERVATION
+        self.epsilon_start = Config.EPSILON
+        self.min_epsilon = Config.MIN_EPSILON
         self.epsilon = Config.EPSILON
         self.egp = Config.EPSILON_GREEDY_PROBABILITY
         self.target_update_freq = Config.TARGET_UPDATE_FREQ
@@ -99,8 +102,10 @@ class Algorithm:
         model.train()
         logits, h = model(batch_feature, state=None)
 
-        loss = torch.square(target_q - logits.gather(1, batch_action).view(-1)).mean()
+        pred_q = logits.gather(1, batch_action).view(-1)
+        loss = F.smooth_l1_loss(pred_q, target_q)
         loss.backward()
+        model_grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
         self.optim.step()
 
         self.train_step += 1
@@ -122,6 +127,7 @@ class Algorithm:
                 "value_loss": value_loss,
                 "q_value": q_value,
                 "reward": reward,
+                "diy_1": model_grad_norm,
             }
             if self.monitor:
                 self.monitor.put_data({os.getpid(): monitor_data})
@@ -164,7 +170,7 @@ class Algorithm:
         # Exploration factor,
         # we want epsilon to decrease as the number of prediction steps increases, until it reaches 0.1
         # 探索因子, 我们希望epsilon随着预测步数越来越小，直到0.1为止
-        self.epsilon = max(0.1, self.epsilon - self.predict_count / self.egp)
+        self.epsilon = max(self.min_epsilon, self.epsilon_start - self.predict_count / self.egp)
 
         with torch.no_grad():
             # epsilon greedy

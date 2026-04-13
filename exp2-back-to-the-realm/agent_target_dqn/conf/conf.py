@@ -54,12 +54,16 @@ class Config:
     # 探索因子, epsilon的计算见上面注释中的函数
     EPSILON_GREEDY_PROBABILITY = 300000
 
+    # Minimum epsilon value for exploration decay
+    # epsilon衰减的下限
+    MIN_EPSILON = 0.1
+
     # Discount factor GAMMA in RL
     # RL中的回报折扣GAMMA
     GAMMA = 0.9
 
     # epsilon
-    EPSILON = 0.1
+    EPSILON = 1.0
 
     # Initial learning rate
     # 初始的学习率
