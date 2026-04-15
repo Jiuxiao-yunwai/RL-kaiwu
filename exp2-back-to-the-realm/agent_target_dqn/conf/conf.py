@@ -48,38 +48,22 @@ class Config:
 
     # Update frequency of target network
     # target网络的更新频率
-    TARGET_UPDATE_FREQ = 1200
-
-    # Soft update coefficient for target network
-    # target网络软更新系数
-    SOFT_UPDATE_TAU = 0.01
-
-    # Whether to use Double DQN target estimation
-    # 是否使用Double DQN目标估计
-    USE_DOUBLE_DQN = True
+    TARGET_UPDATE_FREQ = 500
 
     # Exploration factor, see the calculation of epsilon in the function in the above comment
     # 探索因子, epsilon的计算见上面注释中的函数
-    EPSILON_GREEDY_PROBABILITY = 150000
-
-    # Minimum epsilon value for exploration decay
-    # epsilon衰减的下限
-    MIN_EPSILON = 0.05
+    EPSILON_GREEDY_PROBABILITY = 300000
 
     # Discount factor GAMMA in RL
     # RL中的回报折扣GAMMA
     GAMMA = 0.9
 
     # epsilon
-    EPSILON = 1.0
+    EPSILON = 0.1
 
     # Initial learning rate
     # 初始的学习率
     START_LR = 1e-4
-
-    # Number of repeated learn steps for each collected training chunk
-    # 每次采样块执行的重复学习次数
-    LEARN_REPEATS = 2
 
     # Configuration about kaiwu usage. The following configurations can be ignored
     # 关于开悟平台使用的配置，是可以忽略的配置，不需要改动

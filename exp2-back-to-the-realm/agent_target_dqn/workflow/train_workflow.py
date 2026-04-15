@@ -13,7 +13,6 @@ import os
 from kaiwu_agent.utils.common_func import Frame, attached
 
 from tools.train_env_conf_validate import check_usr_conf, read_usr_conf
-from agent_target_dqn.conf.conf import Config
 from agent_target_dqn.feature.definition import (
     reward_shaping,
     sample_process,
@@ -52,8 +51,7 @@ def workflow(envs, agents, logger=None, monitor=None):
             data_length += len(g_data)
             total_rew = sum([i.rew for i in g_data])
             epoch_total_rew += total_rew
-            for _ in range(Config.LEARN_REPEATS):
-                agent.learn(g_data)
+            agent.learn(g_data)
             g_data.clear()
 
         avg_step_reward = 0
@@ -106,7 +104,6 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
         diy_3 = 0
         diy_4 = 0
         diy_5 = 0
-        diy_6 = 0
 
         while not done:
             # Agent performs inference, gets the predicted action for the next frame
@@ -147,7 +144,6 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
                     reward_exploration,
                     reward_treasure_dist,
                     reward_treasure,
-                    reward_stuck,
                 ) = reward_shaping(
                     frame_no,
                     score,
@@ -162,7 +158,6 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
                 diy_3 += reward_exploration
                 diy_4 += reward_treasure_dist
                 diy_5 += reward_treasure
-                diy_6 += reward_stuck
 
                 treasure_dists = [organ.status for organ in _obs.frame_state.organs]
                 treasures_num = treasure_dists.count(1.0)
@@ -214,7 +209,7 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
                     yield collector
 
                 if monitor:
-                    monitor_data = {"diy_2": diy_2, "diy_3": diy_3, "diy_4": diy_4, "diy_5": diy_5, "diy_6": diy_6}
+                    monitor_data = {"diy_2": diy_2, "diy_3": diy_3, "diy_4": diy_4, "diy_5": diy_5}
                     monitor.put_data({os.getpid(): monitor_data})
 
                 break
