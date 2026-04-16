@@ -1,0 +1,25 @@
+
+root: true
+  arena_remote: false
+    remote_agent: true
+      remote_predict: true
+      remote_model: false
+      remote_sample: true
+      remote_learn: true
+    remote_env: false
+  
+  actor_remote: true
+    receive_obs: true
+    receive_model: true 
+  
+  learner_remote: true
+    receive_sample: true
+    send_model: true
+  
+  mempool_mgr: true
+
+  remote_act_mgr: true
+
+  model_deliver_mgr: true
+    deliver_send_model: true
+    deliver_recv_model: true

@@ -1,0 +1,6 @@
+
+agent:
+  agent_num: 1
+  epoch_num: 10000
+  episode_num_every_epoch: 10
+  g_data_truncat: 10000

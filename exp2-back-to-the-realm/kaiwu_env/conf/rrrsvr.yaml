@@ -1,0 +1,37 @@
+
+proxy: 
+  server:
+    url_ftend: tcp://0.0.0.0:5566
+    url_bkend: tcp://0.0.0.0:5567
+    flag_monitor: false
+    mode_ftend: process
+    mode_bkend: process
+    daemon: true
+    logger_name: proxy_rrr_server
+
+  worker:
+    url_bkend: tcp://localhost:5567
+    logger_name: proxy_rrr_worker
+
+  client:
+    url_ftend: tcp://localhost:5566
+    logger_name: proxy_rrr_client
+
+
+skylarena: 
+  server:
+    url_ftend: tcp://0.0.0.0:5588
+    url_bkend: tcp://0.0.0.0:5589
+    flag_monitor: false
+    mode_ftend: process
+    mode_bkend: process
+    daemon: true
+    logger_name: skylarena_rrr_server
+
+  worker:
+    url_bkend: tcp://localhost:5589
+    logger_name: skylarena_rrr_worker
+
+  client:
+    url_ftend: tcp://localhost:5588
+    logger_name: skylarena_rrr_client

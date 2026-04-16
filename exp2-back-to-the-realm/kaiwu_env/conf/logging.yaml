@@ -1,0 +1,13 @@
+# 下面是日志文件相关配置
+log_dir: /data/projects/Skylarena/log
+log_file_prefix: arena_logger_log_
+section: main_system
+file_path: conf/configure_system.toml
+svr_name: env
+level: INFO
+rotation: 100MB
+encoding: utf-8
+compression: zip
+retention: 10 days
+# 日志按照json格式输出
+serialize: False

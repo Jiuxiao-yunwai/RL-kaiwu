@@ -1,0 +1,28 @@
+use_alloc: True
+set_name: gorge_walk_set1
+task_id: uuid
+svr_name: arena
+self_play_set_name: set2
+idle_sleep_second: 0.001
+idle_sleep_count: 5
+alloc_process_address: 9.151.119.189:8080
+alloc_process_address_debug: ""
+alloc_process_address_release: ""
+alloc_process_per_seconds: 5
+alloc_process_role_battlesrv: 1
+alloc_process_role_aisrv: 2
+alloc_process_role_actor: 3
+alloc_process_role_learner: 4
+alloc_process_role_skylarena: 7
+alloc_process_role_game: 8
+alloc_process_assign_limit_arena: 1
+alloc_process_assign_limit_aisrv: 10000
+alloc_process_assign_limit_actor: 10000
+alloc_process_assign_limit_learner: 10000
+alloc_process_assign_limit_battlesrv: 10000
+
+register_port_skylarena: 7777
+register_port_game: 8888
+
+section: main_system
+file_path: conf/configure_system.toml

@@ -1,0 +1,19 @@
+
+
+skylarena: 
+  server:
+    host: 0.0.0.0
+    port: 3031
+  client:
+    endpoint: 127.0.0.1
+    port: 3031 
+    retry_times: 1000
+    retry_sleep_seconds: 1
+
+entity:
+  server:
+    host: 0.0.0.0
+    port: 4041
+  client:
+    host: 127.0.0.1
+    port: 4041 

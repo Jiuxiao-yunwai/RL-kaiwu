@@ -1,0 +1,26 @@
+# proxy or entity or skylarena
+run_mode: proxy
+
+# cloak or raw
+entity_type: raw
+
+# 2in1 or raw
+proxy_type: raw
+
+# 2in1 or raw
+skylarena_type: raw
+
+# communication type, lazy or busy, default lazy
+comm_type: lazy
+
+# arena or drl or sail
+aisvr_type: drl
+
+# train or evaluate
+train_or_eval: train
+
+# drl连接skylarena时的url, 需要覆盖
+skylarena_url: tcp://localhost:5566
+
+# coroutine or process
+procedure_type: process

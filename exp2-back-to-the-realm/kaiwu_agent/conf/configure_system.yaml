@@ -1,0 +1,149 @@
+# 下面的项目是每个app要单独配置的
+app: gorge_walk
+rainbow_env_name: gorge_walk
+# 是否是收发数据放在C++侧
+cpp_daemon_send_recv_zmq_data: False
+is_test: True
+# 下面是日志文件相关配置
+rotation: 500MB
+encoding: utf-8
+compression: zip
+retention: 10 days
+# 日志按照json格式输出
+serialize: False
+# 如果输出了ERROR及其以上级别, 是否停掉进程
+stop_process_when_error: False
+# 下面是进程网络相关配置
+sock_buff_size: 10485760
+socket_timeout: 5
+backlog_size: 1024
+socket_retry_times: 100
+tcp_keep_alive: 1
+tcp_keep_alive_idle: 60
+tcp_keep_alive_intvl: 1
+time_steps: 4
+policy_name: train_one
+# aisrv和actor通信方式, 支持zmq, zmq-ops
+aisrv_actor_communication_way: zmq
+# 下面是进程端口默认配置, 支持业务自定义端口
+aisrv_server_port: 8000
+reverb_svr_port: 9999
+zmq_server_port: 8888
+zmq_server_op_port: 6666
+# 下面是zmq配置
+zmq_ops_hwm: 10240
+zmq_io_threads: 1
+queue_size: 1024
+proxy_batch_size: 32
+# 下面是learner的checkpoint文件配置
+restore_dir: /data/ckpt/
+summary_dir: /data/summary/
+ckpt_dir: /data/ckpt/
+max_to_keep_ckpt_file_num: 4
+save_model_num: 1
+pb_model_dir: /data/pb_model/
+save_pb_num: 1
+save_summaries_steps: 10
+save_checkpoint_steps: 100
+save_checkpoint_secs: 120
+save_summaries_secs: 600
+cpu_num: 4
+learner_ip_addrs: localhost,localhost
+actor_ip_addrs: localhost,localhost
+learner_grpc_ports: 8001
+actor_grpc_ports: 8002
+learner_device_type: GPU
+use_rnn: False
+# learner上reverb相关配置
+reverb_table_name: reverb_replay_buffer_table
+reverb_table_size: 1
+# 支持的强化学习框架, 比如TensorFlow, TensorRT, pytorch, tcnn等
+python_machine_learning_frame: TensorFlow
+# TensorRT引擎文件目录
+tensorrt_engine_dir: /data/projects/kaiwu-fwk/framework/server/cpp/src/actor/trt_inference
+# cpu亲和性
+actor_cpu_affinity_list: 0,1,2,3,4,5,6,7,8,9
+# aisrv最大接收到的TCP连接数目
+max_tcp_count: 1000
+# 间隔多少帧就进行预测
+frame_interval: 3
+# actor/learner的同步modelpoll时间间隔
+ckpt_sync_way: modelpool
+model_file_sync_per_minutes: 10
+# learner的tensorflow打开profile
+print_profile: False
+print_profile_start_step: 100
+print_profile_end_step: 200
+# 进程空闲次数和休息时间
+idle_sleep_second: 0.001
+idle_sleep_count: 5
+
+# 注意: 切勿将下面包含秘钥信息的配置提交到代码仓库中！！！！！！！下面是分配服务alloc的配置
+use_alloc: False
+alloc_process_address_debug: ""
+alloc_process_address_release: ""
+alloc_process_per_seconds: 5
+alloc_process_role_battlesrv: 1
+alloc_process_role_aisrv: 2
+alloc_process_role_actor: 3
+alloc_process_role_learner: 4
+alloc_process_assign_limit_aisrv: 10000
+alloc_process_assign_limit_actor: 10000
+alloc_process_assign_limit_learner: 10000
+alloc_process_assign_limit_battlesrv: 10000
+
+# actor、learner进程启动方式, 0代表正常启动, 1代表从COS拉取model文件后启动
+start_actor_learner_process_type: 0
+
+# 下面是COS的配置
+push_to_cos: False
+cos_local_target_dir: /data/cos_local_target_dir/
+cos_local_keep_file_num: 10
+cos_secret_id: ""
+cos_secret_key: ""
+cos_region: ap-nanjing
+cos_token: ""
+cos_bucket: ""
+
+# 下面是普罗米修斯的配置
+use_prometheus: False
+sgame_5v5_prometheus_pwd: ""
+sgame_5v5_prometheus_user: ""
+sgame_5v5_prometheus_pushgateway: ""
+sgame_1v1_prometheus_pwd: ""
+sgame_1v1_prometheus_user: ""
+sgame_1v1_prometheus_pushgateway: ""
+gorge_walk_prometheus_pwd: ""
+gorge_walk_prometheus_user: ""
+gorge_walk_prometheus_pushgateway: ""
+prometheus_stat_per_minutes: 1
+prometheus_instance: kaiwu-drl
+prometheus_db: kaiwu-drl
+
+# 下面是七彩石配置, 每个项目单独配置rainbow_env_name
+use_rainbow: False
+rainbow_url: ""
+rainbow_app_id: ""
+rainbow_user_id: ""
+rainbow_secret_key: ""
+rainbow_activate_per_minutes: 10
+# 下面是压缩和解压缩配置
+use_compress_decompress: True
+compress_decompress_algorithms: lz4
+lz4_uncompressed_size: 3145728
+# 下面是Redis配置
+redis_host: ""
+redis_port: 6379
+aisrv_actor_timeout_second_threshold: 1
+# 是否支持actor/learner扩缩容
+actor_learner_expansion: False
+# set name设置
+set_name: set1
+self_play_set_name: set2
+# aisrv和actor之间通信信息, pickle和protobuf, actor是C++常驻进程时选择protobuf
+aisrv_actor_protocl: pickle
+# 使用的强化学习框架, 包括tensorflow_simple, tensorflow_complex, tensorrt, pytorch等, 默认是tensorflow_simple
+use_model_wraper_way: pytorch
+# task_id
+task_id: uuid
+

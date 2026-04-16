@@ -1,0 +1,21 @@
+
+syntax = "proto3";
+
+
+message PBObservation {
+  repeated float feature = 1;
+  repeated int32 legal_act = 2;
+}
+
+message PBObservationList {
+  repeated PBObservation observations = 1;
+}
+
+message PBAction {
+  int32 act = 1;
+  int32 sub_act = 2;
+}
+
+message PBActionList {
+  repeated PBAction actions = 1;
+}

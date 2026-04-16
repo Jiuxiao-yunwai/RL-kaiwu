@@ -1,0 +1,11 @@
+# 下面是日志文件相关配置
+log_dir: /data/projects/Metagent/log
+log_file_prefix: metagent_logger_log_
+svr_name: metagent
+level: INFO
+rotation: 100MB
+encoding: utf-8
+compression: zip
+retention: 10 days
+# 日志按照json格式输出
+serialize: False

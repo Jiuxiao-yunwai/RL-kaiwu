@@ -1,0 +1,18 @@
+
+# kaiwu_agent or drl or sail
+aisvr_type: drl
+
+
+# game_name and scene_name, 在不传入的情况下, 读取默认配置
+game_name: default
+scene_name: fish
+
+# use rainbow or not
+use_rainbow: False
+
+# 如果希望环境每一局的随机是可控的，则需要设置一个随机因子，如果希望随机设置默认值default，一般评估时要用
+exam_random_seed: default
+
+# 
+model_save_path: /data/projects/Metagent/send_model/model
+model_load_path: /data/projects/Metagent/recv_model/model

@@ -1,0 +1,57 @@
+---
+#start: [11, 56]
+start: 0
+#end: [19, 14]
+end: 1
+treasure_id: []
+treasure_count: 5
+treasure_random: 1
+# diy 是用户传入的配置, 可以修改的内容包含: start, end, treasure_id, treasure_count
+# diy 的优先级高于上面的系统默认配置
+diy:
+bump_exit: False
+map_path:
+  fish: "/data/projects/Skylarena/arena/conf/gorge_walk_v1/map_path/fish.json"
+treasure_path:
+  fish: "/data/projects/Skylarena/arena/conf/gorge_walk_v1/treasure_path/fish.yaml"
+view: 25
+# 最大步数
+max_step: 2000
+
+# monitor 相关的配置
+TIME_WINDOW: 60
+ALPHA: 0.5
+
+score:
+  win: 150
+  treasure: 100
+  step_bonus: 0.2
+  all_collection: 0
+score_decay: False
+action_space:
+  0: UP
+  1: DOWN
+  2: LEFT
+  3: RIGHT
+command:
+  w: 0
+  s: 1
+  a: 2
+  d: 3
+direction:
+  UP: [0, 1]
+  DOWN: [0, -1]
+  LEFT: [-1, 0]
+  RIGHT: [1, 0]
+# level 0: no treasure, end close to start
+# level 1: no treasure, end far from start
+# level 2: 1 treasure, end far from start
+# level 3: 10 treasure, end far from start
+MDP_level: 0
+map_id: 1
+talent:
+  distance: 8000
+buff:
+  speed: 1000
+step_distance: 700
+direction_num: 8

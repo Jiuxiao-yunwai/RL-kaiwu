@@ -1,0 +1,11 @@
+---
+diy: 
+  car_max_speed: 60000
+  weather_id: 0
+  car_accident: [[0,3,1000,2000],[1,0,1000,3000],[2,1,1200,2800],[3,1,300,700]]
+  lanes_disable: [["east",2,800,2600],["west",3,0,3500],["south",3,1400,1500],["north",1,900,2500]]
+  rush_hour: 0
+  random_seed_for_over_seed_cars: 1
+  max_waiting_cars: 50
+  max_waiting_duration_for_cars: 300
+  task_duration: 3600

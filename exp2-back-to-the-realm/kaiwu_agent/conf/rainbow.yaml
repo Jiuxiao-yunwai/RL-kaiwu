@@ -1,0 +1,5 @@
+section: main_system
+file_path: conf/configure_system.toml
+
+# aisrv or skylarena or game or main
+process_name: game

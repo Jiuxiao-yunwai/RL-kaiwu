@@ -1,0 +1,84 @@
+{
+    "Treasure": [
+        {
+            "id": 0,
+            "location": [
+                19,
+                14
+            ],
+            "score": 40
+        },
+        {
+            "id": 1,
+            "location": [
+                9,
+                28
+            ],
+            "score": 40
+        },
+        {
+            "id": 2,
+            "location": [
+                9,
+                44
+            ],
+            "score": 40
+        },
+        {
+            "id": 3,
+            "location": [
+                42,
+                45
+            ],
+            "score": 40
+        },
+        {
+            "id": 4,
+            "location": [
+                32,
+                23
+            ],
+            "score": 40
+        },
+        {
+            "id": 5,
+            "location": [
+                49,
+                56
+            ],
+            "score": 40
+        },
+        {
+            "id": 6,
+            "location": [
+                35,
+                58
+            ],
+            "score": 40
+        },
+        {
+            "id": 7,
+            "location": [
+                23,
+                55
+            ],
+            "score": 40
+        },
+        {
+            "id": 8,
+            "location": [
+                41,
+                33
+            ],
+            "score": 40
+        },
+        {
+            "id": 9,
+            "location": [
+                54,
+                41
+            ],
+            "score": 40
+        }
+    ]
+}

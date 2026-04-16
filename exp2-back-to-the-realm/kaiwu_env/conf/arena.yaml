@@ -1,0 +1,60 @@
+# proxy or entity or skylarena
+run_mode: proxy
+
+# cloak or raw
+entity_type: raw
+
+# 2in1 or raw
+proxy_type: raw
+
+# 2in1 or raw
+skylarena_type: raw
+
+# communication type, lazy or busy, default lazy
+comm_type: lazy
+
+# kaiwu_env or drl or sail
+aisvr_type: drl
+
+# game_name
+game_name: default
+
+# scene_name
+scene_name: default
+
+# use rainbow or not
+use_rainbow: False
+
+# use prometheus or not 
+use_prometheus: False
+
+# use alloc or not 
+use_alloc: False
+
+# train or eval or exam, 后续增加了exam模式, 大部分与eval模式等价 
+train_or_eval: train 
+
+# PYWrapper or SGWrapper
+gamecore_type: PYWrapper
+
+# drl连接skylarena时的url, 需要覆盖
+skylarena_url: tcp://localhost:5566
+
+# coroutine or process
+procedure_type: process
+
+# 平台落数据的地址
+platform_log_dir: "/data/projects/Skylarena/log/game_data"
+
+# 评估模式时由启动脚本传入game_id
+eval_game_id: None
+
+# 如果执行多个run_entity.py则需要进行区分，支持传入唯一的id
+proc_id: default
+
+# 如果希望环境每一局的随机是可控的，则需要设置一个随机因子，如果希望随机设置默认值default，一般评估时要用
+exam_random_seed: default
+
+# env连接rpc时的address, 需要覆盖
+rpc_host: localhost
+rpc_port: 7788

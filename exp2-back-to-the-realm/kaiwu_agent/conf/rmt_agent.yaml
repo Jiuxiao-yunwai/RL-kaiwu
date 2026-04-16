@@ -1,0 +1,48 @@
+
+predict: 
+  server:
+    url_ftend: tcp://0.0.0.0:6666
+    url_bkend: tcp://0.0.0.0:6667
+    flag_monitor: false
+    daemon: true
+    logger_name: proxy_rrr_server
+
+  worker:
+    url_bkend: tcp://localhost:6667
+    logger_name: proxy_rrr_worker
+
+  client:
+    url_ftend: tcp://localhost:6666
+    logger_name: proxy_rrr_client
+
+mempool_fe: 
+  server:
+    url_ftend: tcp://0.0.0.0:6677
+    url_bkend: tcp://0.0.0.0:6678
+    flag_monitor: false
+    daemon: true
+    logger_name: proxy_rrr_server
+
+  worker:
+    url_bkend: tcp://localhost:6678
+    logger_name: proxy_rrr_worker
+
+  client:
+    url_ftend: tcp://localhost:6677
+    logger_name: proxy_rrr_client
+
+mempool_be: 
+  server:
+    url_ftend: tcp://0.0.0.0:6688
+    url_bkend: tcp://0.0.0.0:6689
+    flag_monitor: false
+    daemon: true
+    logger_name: proxy_rrr_server
+
+  worker:
+    url_bkend: tcp://localhost:6689
+    logger_name: proxy_rrr_worker
+
+  client:
+    url_ftend: tcp://localhost:6688
+    logger_name: proxy_rrr_client

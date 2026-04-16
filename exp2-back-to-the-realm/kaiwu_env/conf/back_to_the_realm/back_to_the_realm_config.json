@@ -1,0 +1,49 @@
+{
+  "battlesrv": {
+    "workspace_path": "/data/projects/back_to_the_realm",
+    "client_ini": "/data/projects/back_to_the_realm/conf/framework/client.toml"
+  },
+  "gamecore": {
+    "battlesrv_port": 5555,
+    "endpoint": "127.0.0.1:3030",
+    "ugc_project_id": 600,
+    "retry_times": 1000,
+    "retry_sleep_seconds": 1
+  },
+  "nature_client": {
+    "treasure_count": 10,
+    "random_start": true,
+    "random_end": false,
+    "random_treasure": true,
+    "max_frame": 3000,
+    "map_id": "1"
+  },
+  "back_to_the_realm": {
+    "buff_pos_id": 0,
+    "start_pos_id": 1,
+    "end_pos_id": 2,
+    "treasure_pos_id": [],
+    "view": 25,
+    "direction_num": 8,
+    "trigger_radius": 1000,
+    "error_counter": 100,
+    "error_distance": 100,
+    "step_distance": 700
+  },
+  "talent": {
+    "talent_id": 1,
+    "cool_down": 120,
+    "distance": 8000
+  },
+  "buff": {
+    "speed": 1000,
+    "duration": 10,
+    "period": 90
+  },
+  "score": {
+    "win_score": 150,
+    "treasure_score": 100,
+    "active_rate": 0.5,
+    "step_bonus_rate": 0.2
+  }
+}

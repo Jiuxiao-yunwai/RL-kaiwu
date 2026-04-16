@@ -1,0 +1,21 @@
+
+deliver_model:
+  server:
+    url_ftend: tcp://0.0.0.0:8887
+    url_bkend: tcp://0.0.0.0:8888
+    flag_monitor: true
+    use_lvc: true
+    logger_name: rps_server
+
+  subscriber:
+    url_bkend: tcp://localhost:8888
+    logger_name: rps_subscriber
+
+  publisher:
+    url_ftend: tcp://localhost:8887
+    sub_sync: false
+    num_sub: 1
+    logger_name: rps_publisher
+
+  topic:
+    daemon_sync_bean: 1

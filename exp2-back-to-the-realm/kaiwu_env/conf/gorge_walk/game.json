@@ -1,0 +1,52 @@
+
+
+{
+    "MAP_PATH": "/data/projects/Skylarena/kaiwu_env/gorge_walk/res/grid.json", 
+    "TREASURE_PATH": "/data/projects/Skylarena/kaiwu_env/gorge_walk/res/treasure.json",
+    "WHICH_START_POINT": "CURRICULUM_START_POINT",
+    "DISTANCE_METRIC": "dijkstra_distance",
+    "BUMP_REWARD": -200,
+    "STEP_REWARD": -10,
+    "DISTANCE_REWARD": 1,
+    "WIN_REWARD": 200,
+    "ALL_COLLECTION_REWARD": 0,
+    "START_POINT": [
+        29,
+        9
+    ],
+    "END_POINT": [
+        11,
+        55
+    ],
+    "VIEW": 2,
+    "DIRECTION": {
+        "RIGHT": [
+            0,
+            1
+        ],
+        "LEFT": [
+            0,
+            -1
+        ],
+        "UP": [
+            -1,
+            0
+        ],
+        "DOWN": [
+            1,
+            0
+        ]
+    },
+    "COMMAND": {
+        "d": "RIGHT",
+        "a": "LEFT",
+        "w": "UP",
+        "s": "DOWN"
+    },
+    "ACTION": [
+        "UP",
+        "DOWN",
+        "LEFT",
+        "RIGHT"
+    ]
+}

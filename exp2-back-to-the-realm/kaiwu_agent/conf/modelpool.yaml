@@ -1,0 +1,4 @@
+SIZE_MODELPOOL: 10
+
+SEND_MODEL_PATH: /data/projects/Metagent/send_model/model
+RECV_MODEL_PATH: /data/projects/Metagent/recv_model/model

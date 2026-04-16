@@ -1,0 +1,52 @@
+---
+#start: [11, 56]
+start: 2
+#end: [19, 14]
+end: 1
+treasure_id: -1
+treasure_count: 8
+treasure_random: 1
+max_step: 2000
+# diy 是用户传入的配置, 可以修改的内容包含: start, end, treasure_id, treasure_count
+# diy 的优先级高于上面的系统默认配置
+diy:
+bump_exit: False
+map_path:
+  fish: "/data/projects/Skylarena/arena/conf/back_to_the_realm/map_path/fish.json"
+treasure_path:
+  fish: "/data/projects/Skylarena/arena/conf/back_to_the_realm/treasure_path/fish.yaml"
+view: 25
+max_frame: 1000
+score:
+  win: 150
+  treasure: 100
+  step_bonus: 0.2
+  all_collection: 0
+score_decay: False
+action_space:
+  0: UP
+  1: DOWN
+  2: LEFT
+  3: RIGHT
+command:
+  w: 0
+  s: 1
+  a: 2
+  d: 3
+direction:
+  UP: [0, 1]
+  DOWN: [0, -1]
+  LEFT: [-1, 0]
+  RIGHT: [1, 0]
+# level 0: no treasure, end close to start
+# level 1: no treasure, end far from start
+# level 2: 1 treasure, end far from start
+# level 3: 10 treasure, end far from start
+MDP_level: 0
+map_id: 1
+talent:
+  distance: 8000
+buff:
+  speed: 1000
+step_distance: 700
+direction_num: 8

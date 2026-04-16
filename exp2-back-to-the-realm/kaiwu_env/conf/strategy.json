@@ -1,0 +1,66 @@
+
+{
+    "kaiwu_env.__init__.run_mode_selector": {
+        "default_strategy": "kaiwu_env.__init__.StrategyRunModeSelector.default_mode",
+        "entity": "kaiwu_env.__init__.StrategyRunModeSelector.entity",
+        "skylarena": "kaiwu_env.__init__.StrategyRunModeSelector.skylarena",
+        "proxy": "kaiwu_env.__init__.StrategyRunModeSelector.proxy"
+    },
+    "kaiwu_env.__init__.scene_selector": {
+        "default_strategy": "kaiwu_env.__init__.StrategySceneSelector.default_scene",
+        "gorge_walk": "kaiwu_env.__init__.StrategySceneSelector.gorge_walk",
+        "back_to_the_realm": "kaiwu_env.__init__.StrategySceneSelector.back_to_the_realm",
+        "back_to_the_realm_rpc": "kaiwu_env.__init__.StrategySceneSelector.back_to_the_realm_rpc"
+    },
+    "kaiwu_env.env.protocol.Parse_AIServerRequest.decode": {
+        "default_strategy": "kaiwu_env.env.protocol.Parse_AIServerRequest_Default.decode",
+        "gorge_walk": "kaiwu_env.gorge_walk.protocol.Parse_AIServerRequest.decode",
+        "back_to_the_realm": "kaiwu_env.back_to_the_realm.protocol.Parse_AIServerRequest.decode",
+        "back_to_the_realm_rpc": "kaiwu_env.back_to_the_realm.protocol.Parse_AIServerRequest.decode"
+    },
+    "kaiwu_env.env.protocol.Parse_AIServerResponse.encode": {
+        "default_strategy": "kaiwu_env.env.protocol.Parse_AIServerResponse_Default.encode",
+        "gorge_walk": "kaiwu_env.gorge_walk.protocol.Parse_AIServerResponse.encode",
+        "back_to_the_realm": "kaiwu_env.back_to_the_realm.protocol.Parse_AIServerResponse.encode",
+        "back_to_the_realm_rpc": "kaiwu_env.back_to_the_realm.protocol.Parse_AIServerResponse.encode"
+    },
+    "kaiwu_env.env.protocol.Parse_AIServerResponse.decode": {
+        "default_strategy": "kaiwu_env.env.protocol.Parse_AIServerResponse_Default.decode",
+        "gorge_walk": "kaiwu_env.gorge_walk.protocol.Parse_AIServerResponse.decode",
+        "back_to_the_realm": "kaiwu_env.back_to_the_realm.protocol.Parse_AIServerResponse.decode",
+        "back_to_the_realm_rpc": "kaiwu_env.back_to_the_realm.protocol.Parse_AIServerResponse.decode"
+    },
+    "kaiwu_env.env.protocol.Parse_StepFrameReq.encode": {
+        "default_strategy": "kaiwu_env.env.protocol.Parse_StepFrameReq_Default.encode",
+        "gorge_walk": "kaiwu_env.gorge_walk.protocol.Parse_StepFrameReq.encode",
+        "back_to_the_realm": "kaiwu_env.back_to_the_realm.protocol.Parse_StepFrameReq.encode",
+        "back_to_the_realm_rpc": "kaiwu_env.back_to_the_realm.protocol.Parse_StepFrameReq.encode"
+    },
+    "kaiwu_env.env.protocol.Parse_StepFrameReq.decode": {
+        "default_strategy": "kaiwu_env.env.protocol.Parse_StepFrameReq_Default.decode",
+        "gorge_walk": "kaiwu_env.gorge_walk.protocol.Parse_StepFrameReq.decode",
+        "back_to_the_realm": "kaiwu_env.back_to_the_realm.protocol.Parse_StepFrameReq.decode",
+        "back_to_the_realm_rpc": "kaiwu_env.back_to_the_realm.protocol.Parse_StepFrameReq.decode"
+    },
+    "kaiwu_env.env.protocol.Parse_StepFrameRsp.decode": {
+        "default_strategy": "kaiwu_env.env.protocol.Parse_StepFrameRsp_Default.decode",
+        "gorge_walk": "kaiwu_env.gorge_walk.protocol.Parse_StepFrameRsp.decode",
+        "back_to_the_realm": "kaiwu_env.back_to_the_realm.protocol.Parse_StepFrameRsp.decode",
+        "back_to_the_realm_rpc": "kaiwu_env.back_to_the_realm.protocol.Parse_StepFrameRsp.decode"
+    },
+    "kaiwu_env.env.protocol.SkylarenaDataHandler": {
+        "default_strategy": "kaiwu_env.env.protocol.SkylarenaDataHandler_Default",
+        "gorge_walk": "kaiwu_env.gorge_walk.data_handler.SkylarenaDataHandler",
+        "back_to_the_realm": "kaiwu_env.back_to_the_realm.data_handler.SkylarenaDataHandler",
+        "back_to_the_realm_rpc": "kaiwu_env.back_to_the_realm.data_handler.SkylarenaDataHandler"
+    },
+    "kaiwu_env.env.env_entity_base.run_env_entity": {
+        "kaiwu_env": "kaiwu_env.env.env_entity_base.StrategySenderSelector.kaiwu_env",
+        "drl": "kaiwu_env.env.env_entity_base.StrategySenderSelector.drl"
+    },
+    "scene_wrapper": {
+        "PYWrapper": "kaiwu_env.env.base_env.PYSceneWrapper",
+        "SGWrapper": "kaiwu_env.env.base_env.SGSceneWrapper",
+        "RPCWrapper": "kaiwu_env.env.base_env.RPCSceneWrapper"
+    }
+}

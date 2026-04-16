@@ -1,0 +1,105 @@
+
+{
+    "kaiwu_agent.env.protocol.Parse_AIServerRequest.decode": {
+        "default_strategy": "kaiwu_agent.env.protocol.Parse_AIServerRequest_Default.decode",
+        "gorge_walk": "kaiwu_agent.gorge_walk.protocol.Parse_AIServerRequest.decode"
+    },
+    "kaiwu_agent.env.protocol.Parse_AIServerResponse.encode": {
+        "default_strategy": "kaiwu_agent.env.protocol.Parse_AIServerResponse_Default.encode",
+        "gorge_walk": "kaiwu_agent.gorge_walk.protocol.Parse_AIServerResponse.encode"
+    },
+    "kaiwu_agent.env.protocol.Parse_AIServerResponse.decode": {
+        "default_strategy": "kaiwu_agent.env.protocol.Parse_AIServerResponse_Default.decode",
+        "gorge_walk": "kaiwu_agent.gorge_walk.protocol.Parse_AIServerResponse.decode"
+    },
+    "kaiwu_agent.env.protocol.Parse_StepFrameReq.encode": {
+        "default_strategy": "kaiwu_agent.env.protocol.Parse_StepFrameReq_Default.encode",
+        "gorge_walk": "kaiwu_agent.gorge_walk.protocol.Parse_StepFrameReq.encode"
+    },
+    "kaiwu_agent.env.protocol.Parse_StepFrameReq.decode": {
+        "default_strategy": "kaiwu_agent.env.protocol.Parse_StepFrameReq_Default.decode",
+        "gorge_walk": "kaiwu_agent.gorge_walk.protocol.Parse_StepFrameReq.decode"
+    },
+    "kaiwu_agent.env.protocol.Parse_StepFrameRsp.decode": {
+        "default_strategy": "kaiwu_agent.env.protocol.Parse_StepFrameRsp_Default.decode",
+        "gorge_walk": "kaiwu_agent.gorge_walk.protocol.Parse_StepFrameRsp.decode"
+    },
+    "kaiwu_agent.env.protocol.SkylarenaDataHandler": {
+        "default_strategy": "kaiwu_agent.env.protocol.SkylarenaDataHandler_Default",
+        "gorge_walk": "kaiwu_agent.gorge_walk.protocol.SkylarenaDataHandler"
+    },
+    "kaiwu_agent.env.env_entity_base.run_env_entity": {
+        "kaiwu_agent": "kaiwu_agent.env.env_entity_base.StrategySenderSelector.kaiwu_agent",
+        "drl": "kaiwu_agent.env.env_entity_base.StrategySenderSelector.drl"
+    },
+    "kaiwu_agent.agent.protocol.protocol.PBObs2ObsData": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.PBObs2ObsData",
+        "gorge_walk": "kaiwu_agent.gorge_walk.sarsa.definition.PBObs2ObsData",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.PBObs2ObsData"
+    },
+    "kaiwu_agent.agent.protocol.protocol.ObsData2PBObs": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.ObsData2PBObs",
+        "gorge_walk": "kaiwu_agent.gorge_walk.sarsa.definition.ObsData2PBObs",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.ObsData2PBObs"
+    },
+    "kaiwu_agent.agent.protocol.protocol.PBAct2ActData": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.PBAct2ActData",
+        "gorge_walk": "kaiwu_agent.gorge_walk.monte_carlo.definition.PBAct2ActData",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.PBAct2ActData"
+    },
+    "kaiwu_agent.agent.protocol.protocol.ActData2PBAct": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.ActData2PBAct",
+        "gorge_walk": "kaiwu_agent.gorge_walk.monte_carlo.definition.ActData2PBAct",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.ActData2PBAct"
+    },
+    "kaiwu_agent.agent.protocol.protocol.SampleData2NumpyData": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.SampleData2NumpyData",
+        "gorge_walk": "kaiwu_agent.gorge_walk.dynamic_programming.definition.SampleData2NumpyData",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.SampleData2NumpyData"
+    },
+    "kaiwu_agent.agent.protocol.protocol.NumpyData2SampleData": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.NumpyData2SampleData",
+        "gorge_walk": "kaiwu_agent.gorge_walk.dynamic_programming.definition.NumpyData2SampleData",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.NumpyData2SampleData"
+    },
+    "kaiwu_agent.agent.protocol.protocol.Agent": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.Agent",
+        "gorge_walk": "kaiwu_agent.gorge_walk.dynamic_programming.agent.Agent",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.agent.Agent"
+    },
+    "kaiwu_agent.agent.protocol.protocol.SampleData": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.SampleData",
+        "gorge_walk": "kaiwu_agent.gorge_walk.dynamic_programming.definition.SampleData",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.SampleData"
+    },
+    "kaiwu_agent.agent.protocol.protocol.ObsData": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.ObsData",
+        "gorge_walk": "kaiwu_agent.gorge_walk.dynamic_programming.definition.ObsData",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.ObsData"
+    },
+    "kaiwu_agent.agent.protocol.protocol.ActData": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.ActData",
+        "gorge_walk": "kaiwu_agent.gorge_walk.dynamic_programming.definition.ActData",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.ActData"
+    },
+    "kaiwu_agent.agent.protocol.protocol.observation_process": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.observation_process",
+        "gorge_walk": "kaiwu_agent.gorge_walk.dynamic_programming.definition.observation_process",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.observation_process"
+    },
+    "kaiwu_agent.agent.protocol.protocol.action_process": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.action_process",
+        "gorge_walk": "kaiwu_agent.gorge_walk.dynamic_programming.definition.action_process",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.action_process"
+    },
+    "kaiwu_agent.agent.protocol.protocol.sample_process": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.sample_process",
+        "gorge_walk": "kaiwu_agent.gorge_walk.dynamic_programming.definition.sample_process",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.definition.sample_process"
+    },
+    "kaiwu_agent.agent.protocol.protocol.workflow": {
+        "default_strategy": "kaiwu_agent.agent.protocol.protocol.workflow",
+        "gorge_walk": "kaiwu_agent.gorge_walk.dynamic_programming.train_workflow.workflow",
+        "back_to_the_realm": "kaiwu_agent.back_to_the_realm.target_dqn.train_workflow.workflow"
+    }
+}
