@@ -30,7 +30,7 @@ treasure_random = true
 # Integer, 0~13, and the default value is 8.
 # Description: Number of chests. Only works when treasure_random = true
 # 整型，生成随机宝箱时的宝箱数量，仅在treasure_random = true时生效，取值范围为0~13，默认值为8。
-treasure_count = 13
+treasure_count = 8
 
 # The treasure chest number when generating a fixed treasure chest.
 # It is only valid when treasure_random = false. It is an array with a value range of 1 to 15. The default value is [].
