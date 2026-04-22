@@ -7,14 +7,6 @@
 Author: Tencent AI Arena Authors
 """
 
-# Fixed back_to_the_realm map-1 setting for 13 fixed treasures.
-# 用于固定13宝箱训练/搜索的配置（map_1）。
-FIXED_START_POS_ID = 2
-FIXED_END_POS_ID = 1
-FIXED_TREASURE_IDS = tuple(range(3, 16))
-FIXED_TREASURE_COUNT = len(FIXED_TREASURE_IDS)
-FIXED_TREASURE_SLOT_INDEXES = tuple(treasure_id - 1 for treasure_id in FIXED_TREASURE_IDS)
-
 
 # Configuration, including dimension settings, algorithm parameter settings.
 # The last few configurations in the file are for the Kaiwu platform to use and should not be changed.

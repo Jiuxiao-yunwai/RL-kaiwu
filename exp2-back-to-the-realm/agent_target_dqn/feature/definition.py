@@ -97,19 +97,6 @@ def reward_shaping(
 ):
     reward = 0
 
-    def _safe_dist(dist):
-        # Invisible targets are represented by negative values.
-        # 不可见目标用负值表示，这里统一映射为None方便后续处理。
-        return None if dist is None or dist < 0 else float(dist)
-
-    def _delta_reward(prev_dist, curr_dist, scale=6.0):
-        # Dense progress signal based on distance reduction.
-        # 基于距离减少量构造稠密奖励，并限制范围避免梯度振荡。
-        if prev_dist is None or curr_dist is None:
-            return 0.0
-        delta = prev_dist - curr_dist
-        return float(np.clip(delta / scale, -1.0, 1.0))
-
     # Get the current position coordinates of the agent
     # 获取当前智能体的位置坐标
     pos = _obs_data.frame_state.heroes[0].pos
@@ -118,7 +105,6 @@ def reward_shaping(
     # Get the grid-based distance of the current agent's position relative to the end point, buff, and treasure chest
     # 获取当前智能体的位置相对于终点, buff, 宝箱的栅格化距离
     end_dist = _remain_info.get("end_pos").l2_distance
-    buff_dist = _remain_info.get("buff_pos").grid_distance
     treasure_dists = [pos.grid_distance if pos.grid_distance > 0 else -1 for pos in _remain_info.get("treasure_pos")]
     treasure_count = _remain_info.get("treasure_count")
     treasure_collected_count = _remain_info.get("treasure_collected_count")
@@ -132,7 +118,6 @@ def reward_shaping(
     # frame relative to the end point, buff, and treasure chest
     # 获取智能体上一帧相对于终点，buff, 宝箱的栅格化距离
     prev_end_dist = remain_info.get("end_pos").l2_distance
-    prev_buff_dist = remain_info.get("buff_pos").grid_distance
     prev_treasure_dists = [
         pos.grid_distance if pos.grid_distance > 0 else -1 for pos in remain_info.get("treasure_pos")
     ]
@@ -149,8 +134,8 @@ def reward_shaping(
     reward_end_dist = 0
     # Reward 1.1 Reward for getting closer to the end point
     # 奖励1.1 向终点靠近的奖励
-    if treasure_collected_count >= treasure_count:
-        reward_end_dist = _delta_reward(_safe_dist(prev_end_dist), _safe_dist(end_dist), scale=8.0)
+    if prev_end_dist > 0 and treasure_collected_count > 0:
+        reward_end_dist = 1 if end_dist < prev_end_dist else -1
 
     # Reward 1.2 Reward for winning
     # 奖励1.2 获胜的奖励
@@ -175,13 +160,16 @@ def reward_shaping(
             min_dist = min(visible_dists)
             min_index = treasure_dists.index(min_dist)
             prev_min_dist = prev_treasure_dists[min_index]
-            reward_treasure_dist = _delta_reward(_safe_dist(prev_min_dist), _safe_dist(min_dist), scale=6.0)
+            if min_dist < prev_min_dist or prev_min_dist < 0:
+                reward_treasure_dist = 1
+            else:
+                reward_treasure_dist = -1
 
     # Reward 2.2 Reward for getting the treasure chest
     # 奖励2.2 获得宝箱的奖励
     reward_treasure = 0
     if treasure_collected_count > prev_treasure_collected_count:
-        reward_treasure = treasure_collected_count - prev_treasure_collected_count
+        reward_treasure = 1
 
     """
     Reward 3. Rewards related to the buff
@@ -189,32 +177,25 @@ def reward_shaping(
     """
     # Reward 3.1 Reward for getting closer to the buff
     # 奖励3.1 靠近buff的奖励 (TODO)
-    reward_buff_dist = _delta_reward(_safe_dist(prev_buff_dist), _safe_dist(buff_dist), scale=5.0)
+    reward_buff_dist = 0
 
     # Reward 3.2 Reward for getting the buff
     # 奖励3.2 获得buff的奖励 (TODO)
     reward_buff = 0
-    buff_status = 0
-    prev_buff_status = 0
-    for organ in _obs_data.frame_state.organs:
-        if organ.sub_type == 2:
-            buff_status = organ.status
-            break
-    for organ in obs_data.frame_state.organs:
-        if organ.sub_type == 2:
-            prev_buff_status = organ.status
-            break
-    if prev_buff_status == 1 and buff_status == 0:
-        reward_buff = 1
 
     """
     Reward 4. Rewards related to the flicker
     奖励4. 与闪现相关的奖励
     """
     reward_flicker = 0
-    prev_talent_status = obs_data.frame_state.heroes[0].talent.status
-    talent_status = _obs_data.frame_state.heroes[0].talent.status
-    used_flicker = prev_talent_status == 1 and talent_status == 0
+    # Reward 4.1 Penalty for flickering into the wall (TODO)
+    # 奖励4.1 撞墙闪现的惩罚 (TODO)
+
+    # Reward 4.2 Reward for normal flickering (TODO)
+    # 奖励4.2 正常闪现的奖励 (TODO)
+
+    # Reward 4.3 Reward for super flickering (TODO)
+    # 奖励4.3 超级闪现的奖励 (TODO)
 
     """
     Reward 5. Rewards for quick clearance
@@ -232,15 +213,6 @@ def reward_shaping(
     memory_map = remain_info.get("memory_map")
     reward_memory = memory_map[len(memory_map) // 2]
 
-    # Reward 5.2.1 Additional loop penalty in short horizon.
-    # 奖励5.2.1 短时窗口绕圈惩罚（同一区域反复经过）
-    reward_loop = 0
-    recent_position_map = remain_info.get("recent_position_map")
-    hero_grid_pos = convert_pos_to_grid_pos(curr_pos_x, curr_pos_z)
-    pass_times = recent_position_map.get((hero_grid_pos[0], hero_grid_pos[1]), 1)
-    if pass_times > 1:
-        reward_loop = min(0.25 * (pass_times - 1), 2.0)
-
     # Reward 5.3 Penalty for bumping into the wall
     # 奖励5.3 撞墙的惩罚
     reward_bump = 0
@@ -251,30 +223,19 @@ def reward_shaping(
         # Give a relatively large penalty for bumping into the wall,
         # so that the agent can learn not to bump into the wall as soon as possible
         # 对撞墙给予一个比较大的惩罚，以便agent能够尽快学会不撞墙
-        bump_streak_proxy = min(pass_times - 1, 5)
-        reward_bump = 1 + 0.2 * max(bump_streak_proxy, 0)
-
-    if used_flicker:
-        # If flicker makes no progress or bumps into walls, penalize it.
-        # 闪现若未带来推进或撞墙，则给予惩罚，防止无效释放。
-        progress_signal = reward_treasure_dist if is_treasures_remain else reward_end_dist
-        reward_flicker = -1.0 if is_bump else (0.6 if progress_signal > 0 else -0.3)
+        reward_bump = 1
 
     # Exploration Reward
     # 探索奖励
     reward_exploration = 0
+    recent_position_map = remain_info.get("recent_position_map")
+    hero_grid_pos = convert_pos_to_grid_pos(curr_pos_x, curr_pos_z)
+
     if (hero_grid_pos[0], hero_grid_pos[1]) not in recent_position_map:
         reward_exploration = 1
     else:
         pass_times = recent_position_map[(hero_grid_pos[0], hero_grid_pos[1])]
         reward_exploration = max(-0.5 * pass_times, -10)
-
-    # Reward 5.4 Stagnation penalty: moving but not getting closer to current target.
-    # 奖励5.4 停滞惩罚：有移动但对当前目标几乎无推进。
-    reward_stagnation = 0
-    progress_signal = reward_treasure_dist if is_treasures_remain else reward_end_dist
-    if (not is_bump) and pass_times >= 3 and abs(progress_signal) < 0.05:
-        reward_stagnation = min(0.2 * (pass_times - 2), 1.2)
 
     """
     Concatenation of rewards: Here are 10 rewards provided,
@@ -282,19 +243,17 @@ def reward_shaping(
     奖励的拼接: 这里提供了10个奖励, 同学们按需自行拼接, 也可以自行添加新的奖励
     """
     reward_weight = {
-        "reward_end_dist": 0.9,
-        "reward_win": 0.6,
-        "reward_buff_dist": 0.25,
-        "reward_buff": 0.6,
-        "reward_treasure_dists": 1.1,
-        "reward_treasure": 1.6,
-        "reward_flicker": 0.3,
-        "reward_step": -0.0015,
+        "reward_end_dist": 0.5,
+        "reward_win": 0.5,
+        "reward_buff_dist": 0,
+        "reward_buff": 0,
+        "reward_treasure_dists": 0.5,
+        "reward_treasure": 1.0,
+        "reward_flicker": 0,
+        "reward_step": -0.0005,
         "reward_bump": -1.0,
-        "reward_memory": -0.01,
-        "reward_exploration": 0.08,
-        "reward_loop": -0.35,
-        "reward_stagnation": -0.3,
+        "reward_memory": -0.005,
+        "reward_exploration": 0.05,
     }
 
     reward = [
@@ -309,14 +268,10 @@ def reward_shaping(
         reward_bump * reward_weight["reward_bump"],
         reward_memory * reward_weight["reward_memory"],
         reward_exploration * reward_weight["reward_exploration"],
-        reward_loop * reward_weight["reward_loop"],
-        reward_stagnation * reward_weight["reward_stagnation"],
     ]
 
-    total_reward = float(np.clip(sum(reward), -3.0, 3.0))
-
     return (
-        total_reward,
+        sum(reward),
         is_bump,
         reward_end_dist * reward_weight["reward_end_dist"],
         reward_exploration * reward_weight["reward_exploration"],
