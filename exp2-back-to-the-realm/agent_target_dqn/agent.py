@@ -196,10 +196,13 @@ class Agent(BaseAgent):
 
         # Feature processing 7: Next treasure chest to find
         # 特征处理7：下一个需要寻找的宝箱
-        treasure_dists = [pos.grid_distance for pos in treasure_pos_list]
-        if treasure_dists.count(1.0) < 15:
-            end_treasures_id = np.argmin(treasure_dists)
-            end_pos_features = read_relative_position(treasure_pos_list[end_treasures_id])
+        if treasure_collected_count < treasure_count:
+            visible_treasures = [
+                (idx, pos.grid_distance) for idx, pos in enumerate(treasure_pos_list) if pos.grid_distance >= 0
+            ]
+            if visible_treasures:
+                nearest_idx = min(visible_treasures, key=lambda x: x[1])[0]
+                end_pos_features = read_relative_position(treasure_pos_list[nearest_idx])
 
         # Feature concatenation:
         # Concatenate all necessary features as vector features (2 + 128*2 + 9  + 9*15 + 2 + 4*51*51 = 10808)
