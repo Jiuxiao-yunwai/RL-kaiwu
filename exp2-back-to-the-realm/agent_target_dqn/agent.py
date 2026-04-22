@@ -107,6 +107,7 @@ class Agent(BaseAgent):
         # 加载模型, 可以加载多个文件, 注意每个文件名需要和save_model时保持一致
         model_file_path = f"{path}/model.ckpt-{str(id)}.pkl"
         self.algorithm.model.load_state_dict(torch.load(model_file_path, map_location=self.algorithm.device))
+        self.algorithm.update_target_q()
         self.logger.info(f"load model {model_file_path} successfully")
 
     def action_process(self, act_data):

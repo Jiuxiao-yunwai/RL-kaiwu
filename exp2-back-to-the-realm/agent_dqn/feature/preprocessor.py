@@ -106,15 +106,15 @@ def get_direction(pos_1, pos_2):
         int: Direction encoding, refer to the protocol
         int: 方向编码，参考协议
     """
-    x1, z1 = pos_1.x, pos_1.z
-    x2, z2 = pos_2.x, pos_2.z
-
-    x = x2 - x1
-    z = z2 - z1
+    # Grid positions are stored in row/col order after rasterization:
+    # grid.x corresponds to the original z axis, and grid.z corresponds to the original x axis.
+    # Convert them back to the environment's East/North convention before computing directions.
+    east_west = pos_2.z - pos_1.z
+    north_south = pos_2.x - pos_1.x
 
     # Calculate the angle
     # 计算角度
-    theta = math.atan2(z, x)
+    theta = math.atan2(north_south, east_west)
     if theta < 0:
         # range of atan2 is -pi to pi
         # atan2 的范围是 -pi 到 pi
