@@ -25,19 +25,19 @@ end = 1
 # 若开启随机，则使用treasure_count随机生成宝箱。
 # 宝箱是否随机
 # 默认值为true。
-treasure_random = false
+treasure_random = true
 
 # Integer, 0~13, and the default value is 8.
 # Description: Number of chests. Only works when treasure_random = true
 # 整型，生成随机宝箱时的宝箱数量，仅在treasure_random = true时生效，取值范围为0~13，默认值为8。
-treasure_count = 13
+treasure_count = 8
 
 # The treasure chest number when generating a fixed treasure chest.
 # It is only valid when treasure_random = false. It is an array with a value range of 1 to 15. The default value is [].
 # Note that the start and end point numbers need to be excluded. If you need to generate 0 treasure chests, pass in [].
 # 生成固定宝箱时的宝箱编号，仅在treasure_random = false时生效，数组，取值范围为1~15，默认值为[]。
 # 注意需要排除起点和终点编号，如果需要固定生成0个宝箱则传入[]。
-treasure_id = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+treasure_id = []
 
 # Is hero talent.
 # Integer. The default value is 1, 1 means flash.
@@ -50,4 +50,4 @@ talent_type = 1
 # Description: Max step
 # 整型，取值范围1~2000, 默认2000
 # 最大步数
-max_step = 1500
+max_step = 2000

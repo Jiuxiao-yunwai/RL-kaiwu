@@ -26,7 +26,7 @@ def workflow(envs, agents, logger=None, monitor=None):
     env, agent = envs[0], agents[0]
     epoch_num = 100000
     episode_num_every_epoch = 1
-    g_data_truncat = 128
+    g_data_truncat = 256
     last_save_model_time = 0
 
     # Read and validate configuration file
@@ -171,12 +171,12 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
             if truncated:
                 logger.info(
                     f"truncated is True, so this episode {episode} timeout, \
-                        collected treasures: {treasures_num}"
+                        collected treasures: {treasures_num  - 7}"
                 )
             elif terminated:
                 logger.info(
                     f"terminated is True, so this episode {episode} reach the end, \
-                        collected treasures: {treasures_num}"
+                        collected treasures: {treasures_num  - 7}"
                 )
             done = terminated or truncated
 

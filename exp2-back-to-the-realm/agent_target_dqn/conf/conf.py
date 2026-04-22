@@ -48,7 +48,7 @@ class Config:
 
     # Update frequency of target network
     # target网络的更新频率
-    TARGET_UPDATE_FREQ = 200
+    TARGET_UPDATE_FREQ = 500
 
     # Exploration factor, see the calculation of epsilon in the function in the above comment
     # 探索因子, epsilon的计算见上面注释中的函数
@@ -56,20 +56,14 @@ class Config:
 
     # Discount factor GAMMA in RL
     # RL中的回报折扣GAMMA
-    GAMMA = 0.995
+    GAMMA = 0.9
 
-    # epsilon schedule: linearly decay from EPSILON to EPSILON_MIN in EPSILON_GREEDY_PROBABILITY steps
-    # epsilon调度：在EPSILON_GREEDY_PROBABILITY步内从EPSILON线性衰减到EPSILON_MIN
-    EPSILON = 0.9
-    EPSILON_MIN = 0.05
+    # epsilon
+    EPSILON = 0.1
 
     # Initial learning rate
     # 初始的学习率
-    START_LR = 2e-4
-
-    # Gradient clipping threshold
-    # 梯度裁剪阈值
-    GRAD_NORM_CLIP = 5.0
+    START_LR = 1e-4
 
     # Configuration about kaiwu usage. The following configurations can be ignored
     # 关于开悟平台使用的配置，是可以忽略的配置，不需要改动

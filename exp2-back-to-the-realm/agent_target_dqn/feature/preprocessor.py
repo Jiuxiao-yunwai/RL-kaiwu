@@ -306,7 +306,6 @@ class Preprocessor:
         self.recent_position_max = 100
         self.recent_positions = deque(maxlen=self.recent_position_max)
         self.last_pos = None
-        self.memory_decay = 0.995
 
     def update_position(self, hero_grid_pos):
         # If the queue is full, reduce the count of the oldest position
@@ -402,9 +401,7 @@ class Preprocessor:
 
         # Memory map needs to be updated after local_memory_map is initialized
         # Memory map 需要在local_memory_map初始化后更新
-        self.memory_map *= self.memory_decay
-        if 0 <= grid_pos_x < self.memory_map.shape[0] and 0 <= grid_pos_z < self.memory_map.shape[1]:
-            self.memory_map[grid_pos_x, grid_pos_z] = min(1, 0.25 + self.memory_map[grid_pos_x, grid_pos_z])
+        self.memory_map[grid_pos_x, grid_pos_z] = min(1, 0.2 + self.memory_map[grid_pos_x, grid_pos_z])
 
         return (
             hero_norm_pos,
