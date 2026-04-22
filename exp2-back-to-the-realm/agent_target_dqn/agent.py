@@ -27,6 +27,7 @@ from kaiwu_agent.utils.common_func import attached
 
 
 from agent_target_dqn.algorithm.algorithm import Algorithm
+from agent_target_dqn.conf.conf import FIXED_TREASURE_SLOT_INDEXES
 from arena_proto.back_to_the_realm.custom_pb2 import (
     RelativeDirection,
 )
@@ -196,10 +197,18 @@ class Agent(BaseAgent):
 
         # Feature processing 7: Next treasure chest to find
         # 特征处理7：下一个需要寻找的宝箱
-        treasure_dists = [pos.grid_distance for pos in treasure_pos_list]
-        if treasure_dists.count(1.0) < 15:
-            end_treasures_id = np.argmin(treasure_dists)
-            end_pos_features = read_relative_position(treasure_pos_list[end_treasures_id])
+        target_treasure_indexes = []
+        target_treasure_dists = []
+        for index in FIXED_TREASURE_SLOT_INDEXES:
+            if index >= len(treasure_pos_list):
+                continue
+            dist = treasure_pos_list[index].grid_distance
+            if dist >= 0:
+                target_treasure_indexes.append(index)
+                target_treasure_dists.append(dist)
+        if target_treasure_dists:
+            nearest_idx = target_treasure_indexes[int(np.argmin(target_treasure_dists))]
+            end_pos_features = read_relative_position(treasure_pos_list[nearest_idx])
 
         # Feature concatenation:
         # Concatenate all necessary features as vector features (2 + 128*2 + 9  + 9*15 + 2 + 4*51*51 = 10808)

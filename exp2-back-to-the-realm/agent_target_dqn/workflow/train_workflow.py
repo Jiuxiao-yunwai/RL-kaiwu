@@ -13,6 +13,12 @@ import os
 from kaiwu_agent.utils.common_func import Frame, attached
 
 from tools.train_env_conf_validate import check_usr_conf, read_usr_conf
+from agent_target_dqn.conf.conf import (
+    FIXED_END_POS_ID,
+    FIXED_START_POS_ID,
+    FIXED_TREASURE_COUNT,
+    FIXED_TREASURE_IDS,
+)
 from agent_target_dqn.feature.definition import (
     reward_shaping,
     sample_process,
@@ -44,10 +50,25 @@ def workflow(envs, agents, logger=None, monitor=None):
         logger.error(f"check_usr_conf return False, please check")
         return
 
+    fixed_usr_conf = {
+        "env_conf": {
+            "start": FIXED_START_POS_ID,
+            "end": FIXED_END_POS_ID,
+            "treasure_id": list(FIXED_TREASURE_IDS),
+            "treasure_random": False,
+            "treasure_count": FIXED_TREASURE_COUNT,
+            "talent_type": usr_conf["env_conf"].get("talent_type", 1),
+            "max_step": usr_conf["env_conf"].get("max_step", 2000),
+        }
+    }
+    logger.info(f"target_dqn fixed 13 treasures mode: {fixed_usr_conf}")
+
     for epoch in range(epoch_num):
         epoch_total_rew = 0
         data_length = 0
-        for g_data in run_episodes(episode_num_every_epoch, env, agent, g_data_truncat, usr_conf, logger, monitor):
+        for g_data in run_episodes(
+            episode_num_every_epoch, env, agent, g_data_truncat, fixed_usr_conf, logger, monitor
+        ):
             data_length += len(g_data)
             total_rew = sum([i.rew for i in g_data])
             epoch_total_rew += total_rew

@@ -23,7 +23,7 @@ from arena_proto.back_to_the_realm.custom_pb2 import (
     RelativeDistance,
     RelativePosition,
 )
-from agent_target_dqn.conf.conf import Config
+from agent_target_dqn.conf.conf import Config, FIXED_TREASURE_COUNT, FIXED_TREASURE_IDS
 
 
 def norm(pos):
@@ -346,7 +346,7 @@ class Preprocessor:
         start_pos = get_grid_relative_pos_info(hero_grid_pos, start_grid_pos, grid)
         end_pos = get_grid_relative_pos_info(hero_grid_pos, end_grid_pos, grid)
         treasure_collected_count = state_env_info.game_info.treasure_collected_count
-        treasure_count = state_env_info.game_info.treasure_count
+        treasure_count = FIXED_TREASURE_COUNT
 
         treasure_pos = [get_null_relative_pos()] * 15
         treasure_grids = set()
@@ -368,7 +368,7 @@ class Preprocessor:
             elif organ.sub_type == 1:
                 # treasure
                 # 宝箱
-                if organ.status == 1:
+                if organ.status == 1 and organ.config_id in FIXED_TREASURE_IDS:
                     # Desirable
                     # 可取
                     organ_grid_pos = get_grid_pos(organ.pos.x, organ.pos.z)
