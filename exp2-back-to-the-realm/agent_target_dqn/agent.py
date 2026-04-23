@@ -74,15 +74,6 @@ class Agent(BaseAgent):
         self.logger = logger
         self.algorithm = Algorithm(device, monitor)
 
-        # Initialize tracking variables for complex reward shaping
-        # 初始化追踪变量, 用于复杂的奖励塑造
-        # self.last_grid_distance = 128 * 128
-        self.last_goal_dist = 128 * 128
-        self.last_min_treasure_dist = 128 * 128
-        self.last_buff_dist = 128 * 128
-        self.last_talent_status = 1
-        self.last_pos = None
-
     @predict_wrapper
     def predict(self, list_obs_data):
         return self.algorithm.predict_detail(list_obs_data, exploit_flag=False)
@@ -93,11 +84,6 @@ class Agent(BaseAgent):
 
     @learn_wrapper
     def learn(self, list_sample_data):
-        # Apply reward shaping before learning
-        # 在学习前应用奖励塑造
-        # for sample in list_sample_data:
-        #     sample.rew += self.calculate_shaping_reward(sample)
-
         self.algorithm.learn(list_sample_data)
 
     @save_model_wrapper
@@ -127,62 +113,6 @@ class Agent(BaseAgent):
         result = act_data.move_dir
         result += act_data.use_talent * 8
         return result
-
-    def calculate_shaping_reward(self, goal_dist, treasure_pos_list, buff_pos, talent_status, current_pos):
-        r_total = 0
-        
-        # 1. Goal Path Shapping (BFS)
-        # 终点路径引导奖励
-        if goal_dist != -1 and self.last_goal_dist != 128 * 128:
-            diff_goal = self.last_goal_dist - goal_dist
-            if diff_goal > 0:
-                # Big jump detected (likely Flash through wall)
-                # 检测到大步跳跃 (可能是通过闪现穿墙)
-                if diff_goal > 8: # BFS unit is 500, flash is 8000
-                    r_total += 5.0 
-                else:
-                    r_total += 0.5
-            elif diff_goal < 0:
-                r_total -= 0.1
-
-        # 2. Treasure Hunting in view
-        # 视野内宝箱搜索奖励
-        active_treasure_dists = [t.grid_distance for t in treasure_pos_list if t.grid_distance != -1]
-        if active_treasure_dists:
-            current_min_t = min(active_treasure_dists)
-            if self.last_min_treasure_dist != 128 * 128:
-                diff_t = self.last_min_treasure_dist - current_min_t
-                if diff_t > 0:
-                    r_total += 0.8 # Higher reward than goal to prioritize chests
-                elif diff_t < 0:
-                    r_total -= 0.2
-            self.last_min_treasure_dist = current_min_t
-        else:
-            self.last_min_treasure_dist = 128 * 128
-
-        # 3. Buff Proximity (Speed Up)
-        # 加速增益靠近奖励
-        if buff_pos.grid_distance != -1 and self.last_buff_dist != 128 * 128:
-            diff_b = self.last_buff_dist - buff_pos.grid_distance
-            if diff_b > 0:
-                r_total += 0.3
-        self.last_buff_dist = buff_pos.grid_distance if buff_pos.grid_distance != -1 else 128 * 128
-
-        # 4. Talent Management (Reward keeping talent ready for critical moments)
-        # 闪现冷却就绪奖励, 鼓励其在关键障碍物前使用
-        if talent_status == 1:
-            r_total += 0.05
-
-        # 5. Efficiency Penalty (Preventing wandering)
-        # 时间步衰减, 提高路径效率
-        r_total -= 0.05
-
-        # Update last states
-        self.last_goal_dist = goal_dist if goal_dist != -1 else 128 * 128
-        self.last_talent_status = talent_status
-        self.last_pos = current_pos
-
-        return r_total
 
     def observation_process(self, raw_obs, preprocessor, state_env_info=None):
         """
@@ -282,16 +212,6 @@ class Agent(BaseAgent):
         # 合法动作
         legal_act = list(raw_obs.legal_act)
 
-        # Calculate shaping reward for training
-        # 为训练计算塑造奖励
-        shaping_reward = self.calculate_shaping_reward(
-            end_pos.grid_distance, 
-            treasure_pos_list, 
-            buff_pos, 
-            talent_availability,
-            grid_pos
-        )
-
         remain_info = {
             "memory_map": memory_map,
             "end_pos": end_pos,
@@ -300,7 +220,6 @@ class Agent(BaseAgent):
             "recent_position_map": recent_position_map,
             "treasure_collected_count": treasure_collected_count,
             "treasure_count": treasure_count,
-            "shaping_reward": shaping_reward, # Add shaping reward to remain_info
         }
 
         return ObsData(feature=feature_vec + feature_map, legal_act=legal_act), remain_info

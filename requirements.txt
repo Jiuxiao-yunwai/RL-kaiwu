@@ -14,7 +14,7 @@ crcmod==1.7
 cryptography==42.0.5
 dicttoxml==1.7.16
 dill==0.3.7
-dm-reverb==0.12.0
+# dm-reverb==0.12.0
 dm-tree==0.1.8
 dynaconf==3.2.1
 filelock==3.13.1
@@ -23,7 +23,7 @@ gast==0.4.0
 google-auth==2.34.0
 google-auth-oauthlib==1.0.0
 google-pasta==0.2.0
-gpg==1.21.0
+# gpg==1.21.0
 grpcio==1.65.5
 guppy3==3.1.3
 gym==0.26.2
@@ -35,7 +35,7 @@ iniconfig==2.0.0
 Jinja2==3.1.3
 keras==2.13.1
 libclang==18.1.1
-libcomps==0.1.19
+# libcomps==0.1.19
 linecache2==1.0.0
 linkify-it-py==2.0.3
 llvmlite==0.42.0
@@ -48,7 +48,7 @@ MarkupSafe==2.1.3
 mdit-py-plugins==0.4.2
 mdurl==0.1.2
 memory-profiler==0.60.0
-memray==1.15.0
+# memray==1.15.0
 mpmath==1.3.0
 msgpack==1.1.0
 networkx==3.2.1
@@ -85,11 +85,11 @@ python-rapidjson==1.16
 pytz==2021.3
 PyYAML==6.0.1
 pyzmq==25.1.2
-rainbow-cpp-sdk==4.1.12
+# rainbow-cpp-sdk==4.1.12
 requests==2.30.0
 requests-oauthlib==2.0.0
 rich==13.9.4
-rpm==4.18.2
+# rpm==4.18.2
 rsa==4.9
 ruamel.yaml==0.18.6
 ruamel.yaml.clib==0.2.8
@@ -102,12 +102,12 @@ tensorboard==2.13.0
 tensorboard-data-server==0.7.2
 tensorflow==2.13.1
 tensorflow-estimator==2.13.0
-tensorflow-io-gcs-filesystem==0.37.1
+# tensorflow-io-gcs-filesystem==0.37.1
 termcolor==2.4.0
 textual==2.1.2
-tf2onnx==1.16.1
+# tf2onnx==1.16.1
 toml==0.10.2
-torch==2.0.1+cpu
+# torch==2.0.1+cpu
 tqdm==4.65.0
 traceback2==1.4.0
 typeguard==4.4.2
