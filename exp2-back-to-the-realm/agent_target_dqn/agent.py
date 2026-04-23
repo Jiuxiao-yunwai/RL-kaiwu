@@ -158,7 +158,10 @@ class Agent(BaseAgent):
             memory_map,
             treasure_map,
             end_map,
+            semantic_map,
+            move_mask,
             recent_position_map,
+            arrival_position_map,
             treasure_collected_count,
             treasure_count,
         ) = preprocessor.process(raw_obs)
@@ -208,7 +211,9 @@ class Agent(BaseAgent):
         feature_vec = (
             norm_pos + one_hot_pos + end_pos_features + treasure_pos_features + [buff_availability, talent_availability]
         )
-        feature_map = obstacle_map + end_map + treasure_map + memory_map
+        # Keep 4-channel layout unchanged for interface compatibility.
+        # 通道数量保持4不变，确保接口兼容。
+        feature_map = obstacle_map + end_map + treasure_map + semantic_map
         # Legal actions
         # 合法动作
         legal_act = list(raw_obs.legal_act)
@@ -219,8 +224,9 @@ class Agent(BaseAgent):
             "buff_pos": buff_pos,
             "treasure_pos": treasure_pos_list,
             "recent_position_map": recent_position_map,
+            "arrival_position_map": arrival_position_map,
             "treasure_collected_count": treasure_collected_count,
             "treasure_count": treasure_count,
         }
 
-        return ObsData(feature=feature_vec + feature_map, legal_act=legal_act), remain_info
+        return ObsData(feature=feature_vec + feature_map, legal_act=legal_act, move_mask=move_mask), remain_info

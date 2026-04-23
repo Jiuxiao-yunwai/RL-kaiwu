@@ -383,25 +383,59 @@ class Preprocessor:
         local_memory_map = np.zeros((view * 2 + 1, view * 2 + 1))
         treasure_map = np.zeros((view * 2 + 1, view * 2 + 1))
         end_map = np.zeros((view * 2 + 1, view * 2 + 1))
+        semantic_map = np.zeros((view * 2 + 1, view * 2 + 1), dtype=np.float32)
 
         # Dynamically update the local_memory_map, end_map, treasure_map, obstacle_map features, and pad the map borders with 0
         # 动态更新 local_memory_map, end_map, treasure_map, obstacle_map 四个特征，地图边界处用0进行padding
         for i, j in itertools.product(range(-view, view + 1), range(-view, view + 1)):
             local_i = view + i
             local_j = view + j
+            global_i = grid_pos_x + i
+            global_j = grid_pos_z + j
 
-            if 0 <= local_i < len(grid) and 0 <= local_j < len(grid[0]):
-                obstacle_map[local_i][local_j] = grid[local_i][local_j]
-                if 0 <= grid_pos_x + i < self.memory_map.shape[0] and 0 <= grid_pos_z + j < self.memory_map.shape[1]:
-                    local_memory_map[local_i][local_j] = self.memory_map[grid_pos_x + i, grid_pos_z + j]
-                if (grid_pos_x + i, grid_pos_z + j) in treasure_grids:
+            if 0 <= global_i < len(grid) and 0 <= global_j < len(grid[0]):
+                cell = grid[global_i][global_j]
+                obstacle_map[local_i][local_j] = cell
+
+                if 0 <= global_i < self.memory_map.shape[0] and 0 <= global_j < self.memory_map.shape[1]:
+                    local_memory_map[local_i][local_j] = self.memory_map[global_i, global_j]
+
+                if (global_i, global_j) in treasure_grids:
                     treasure_map[local_i][local_j] = 1
-                if (grid_pos_x + i, grid_pos_z + j) == (end_grid_pos.x, end_grid_pos.z):
+                if (global_i, global_j) == (end_grid_pos.x, end_grid_pos.z):
                     end_map[local_i][local_j] = 1
+
+                # Semantic encoding in a single local matrix:
+                # road=1, wall=0, treasure=2, end=3
+                # 单一语义矩阵编码：道路=1，墙体=0，宝箱=2，终点=3
+                semantic_value = 1.0 if cell == 1 else 0.0
+                if treasure_map[local_i][local_j] == 1:
+                    semantic_value = 2.0
+                if end_map[local_i][local_j] == 1:
+                    semantic_value = 3.0
+                semantic_map[local_i][local_j] = semantic_value
 
         # Memory map needs to be updated after local_memory_map is initialized
         # Memory map 需要在local_memory_map初始化后更新
         self.memory_map[grid_pos_x, grid_pos_z] = min(1, 0.2 + self.memory_map[grid_pos_x, grid_pos_z])
+
+        # Directional action mask for 8-move directions (1 means legal).
+        # 8方向移动动作掩码（1表示可执行）。
+        direction_deltas = [
+            (0, 1),
+            (1, 1),
+            (1, 0),
+            (1, -1),
+            (0, -1),
+            (-1, -1),
+            (-1, 0),
+            (-1, 1),
+        ]
+        move_mask = []
+        for dx, dz in direction_deltas:
+            nx, nz = grid_pos_x + dx, grid_pos_z + dz
+            legal = 1 if (0 <= nx < len(grid) and 0 <= nz < len(grid[0]) and grid[nx][nz] == 1) else 0
+            move_mask.append(legal)
 
         return (
             hero_norm_pos,
@@ -414,7 +448,10 @@ class Preprocessor:
             local_memory_map.flatten().tolist(),
             treasure_map.flatten().astype(int).tolist(),
             end_map.flatten().astype(int).tolist(),
+            semantic_map.flatten().tolist(),
+            move_mask,
             self.recent_position_map.copy(),
+            self.arrival_position_map.copy(),
             treasure_collected_count,
             treasure_count,
         )

@@ -18,31 +18,90 @@ from agent_target_dqn.conf.conf import Config
 from agent_target_dqn.feature.definition import ActData
 
 
+class PrioritizedReplayBuffer:
+    """
+    A minimal PER scaffold for future integration with off-policy replay.
+    用于后续离策略训练的PER基础框架。
+    """
+
+    def __init__(self, capacity=100000, alpha=0.6, beta=0.4, beta_increment=1e-6, eps=1e-6):
+        self.capacity = capacity
+        self.alpha = alpha
+        self.beta = beta
+        self.beta_increment = beta_increment
+        self.eps = eps
+        self.buffer = []
+        self.priorities = np.zeros((capacity,), dtype=np.float32)
+        self.pos = 0
+
+    def __len__(self):
+        return len(self.buffer)
+
+    def add(self, transition, priority=None):
+        max_prio = self.priorities.max() if len(self.buffer) > 0 else 1.0
+        if priority is None:
+            priority = max_prio
+
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(transition)
+        else:
+            self.buffer[self.pos] = transition
+        self.priorities[self.pos] = float(priority)
+        self.pos = (self.pos + 1) % self.capacity
+
+    def sample(self, batch_size):
+        if len(self.buffer) == 0:
+            return [], [], []
+
+        prios = self.priorities[: len(self.buffer)]
+        probs = np.power(prios + self.eps, self.alpha)
+        probs = probs / probs.sum()
+
+        indices = np.random.choice(len(self.buffer), batch_size, p=probs)
+        samples = [self.buffer[idx] for idx in indices]
+
+        self.beta = min(1.0, self.beta + self.beta_increment)
+        weights = np.power(len(self.buffer) * probs[indices], -self.beta)
+        weights = weights / weights.max()
+        return samples, indices, weights.astype(np.float32)
+
+    def update_priorities(self, indices, priorities):
+        for idx, prio in zip(indices, priorities):
+            self.priorities[idx] = float(prio)
+
+
 class Algorithm:
     def __init__(self, device, monitor):
         self.act_shape = Config.DIM_OF_ACTION_DIRECTION + Config.DIM_OF_TALENT
         self.direction_space = Config.DIM_OF_ACTION_DIRECTION
         self.talent_direction = Config.DIM_OF_TALENT
         self.obs_shape = Config.DIM_OF_OBSERVATION
-        self.epsilon = Config.EPSILON
+        self.epsilon_start = Config.EPSILON
+        self.min_epsilon = Config.MIN_EPSILON
+        self.epsilon = self.epsilon_start
         self.egp = Config.EPSILON_GREEDY_PROBABILITY
         self.target_update_freq = Config.TARGET_UPDATE_FREQ
         self.obs_split = Config.DESC_OBS_SPLIT
         self._gamma = Config.GAMMA
         self.lr = Config.START_LR
+        self.use_double_dqn = Config.USE_DOUBLE_DQN
+        self.use_per = Config.USE_PER
         self.device = device
         self.model = Model(
             state_shape=self.obs_shape,
             action_shape=self.act_shape,
             softmax=False,
+            use_dueling=Config.USE_DUELING,
         )
         self.model.to(self.device)
         self.optim = torch.optim.Adam(self.model.parameters(), lr=self.lr)
         self.target_model = deepcopy(self.model)
+        self.target_model.to(self.device)
         self.train_step = 0
         self.predict_count = 0
         self.last_report_monitor_time = 0
         self.monitor = monitor
+        self.per_buffer = PrioritizedReplayBuffer() if self.use_per else None
 
     def learn(self, list_sample_data):
 
@@ -84,12 +143,21 @@ class Algorithm:
             self.__convert_to_tensor(_batch_feature_map).view(batch, *self.obs_split[1]),
         ]
 
-        model = getattr(self, "target_model")
-        model.eval()
+        target_model = getattr(self, "target_model")
+        target_model.eval()
+        online_model = getattr(self, "model")
+        online_model.eval()
         with torch.no_grad():
-            q, h = model(_batch_feature, state=None)
-            q = q.masked_fill(~_batch_obs_legal, float(torch.min(q)))
-            q_max = q.max(dim=1).values.detach()
+            next_target_q, _ = target_model(_batch_feature, state=None)
+            next_target_q = next_target_q.masked_fill(~_batch_obs_legal, -1e9)
+
+            if self.use_double_dqn:
+                next_online_q, _ = online_model(_batch_feature, state=None)
+                next_online_q = next_online_q.masked_fill(~_batch_obs_legal, -1e9)
+                next_action = next_online_q.argmax(dim=1, keepdim=True)
+                q_max = next_target_q.gather(1, next_action).view(-1).detach()
+            else:
+                q_max = next_target_q.max(dim=1).values.detach()
 
         target_q = rew + self._gamma * q_max * not_done
 
@@ -159,19 +227,40 @@ class Algorithm:
             .bool()
             .to(self.device)
         )
+
+        # Additional directional action mask from local obstacle perception.
+        # 来自局部障碍感知的额外方向掩码。
+        move_masks = [
+            obs_data.move_mask if getattr(obs_data, "move_mask", None) is not None else [1] * self.direction_space
+            for obs_data in list_obs_data
+        ]
+        move_masks = torch.tensor(np.array(move_masks), dtype=torch.bool).to(self.device)
+        legal_act[:, : self.direction_space] = legal_act[:, : self.direction_space] & move_masks
+
+        # Safety fallback: if a sample has no legal action after masking, allow all movement directions.
+        # 兜底：若掩码后没有合法动作，放开移动方向避免动作无定义。
+        row_has_legal = legal_act.any(dim=1)
+        for i in range(batch):
+            if not bool(row_has_legal[i]):
+                legal_act[i, : self.direction_space] = True
+
         model = self.model
         model.eval()
-        # Exploration factor,
-        # we want epsilon to decrease as the number of prediction steps increases, until it reaches 0.1
-        # 探索因子, 我们希望epsilon随着预测步数越来越小，直到0.1为止
-        self.epsilon = max(0.1, self.epsilon - self.predict_count / self.egp)
+
+        # Stable linear epsilon schedule with a hard minimum.
+        # 线性epsilon调度并设置最小值下限。
+        decay_ratio = min(1.0, self.predict_count / max(1, self.egp))
+        self.epsilon = max(
+            self.min_epsilon,
+            self.epsilon_start - (self.epsilon_start - self.min_epsilon) * decay_ratio,
+        )
 
         with torch.no_grad():
             # epsilon greedy
-            if not exploit_flag and np.random.rand(1) < self.epsilon:
+            if not exploit_flag and np.random.rand() < self.epsilon:
                 random_action = np.random.rand(batch, self.act_shape)
                 random_action = torch.tensor(random_action, dtype=torch.float32).to(self.device)
-                random_action = random_action.masked_fill(~legal_act, 0)
+                random_action = random_action.masked_fill(~legal_act, -1.0)
                 act = random_action.argmax(dim=1).cpu().view(-1, 1).tolist()
             else:
                 feature = [
@@ -179,7 +268,7 @@ class Algorithm:
                     self.__convert_to_tensor(feature_map).view(batch, *self.obs_split[1]),
                 ]
                 logits, _ = model(feature, state=None)
-                logits = logits.masked_fill(~legal_act, float(torch.min(logits)))
+                logits = logits.masked_fill(~legal_act, -1e9)
                 act = logits.argmax(dim=1).cpu().view(-1, 1).tolist()
 
         format_action = [[instance[0] % self.direction_space, instance[0] // self.direction_space] for instance in act]
