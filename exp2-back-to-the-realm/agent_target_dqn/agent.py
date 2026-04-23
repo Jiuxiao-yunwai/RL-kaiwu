@@ -60,7 +60,13 @@ def read_relative_position(rel_pos):
     """
     direction = [0] * 8
     if rel_pos.direction != RelativeDirection.RELATIVE_DIRECTION_NONE:
-        direction[rel_pos.direction - 1] = 1
+        # Defensive guard for direction range:
+        # protocol currently defines valid directions as 1..8, and NONE as a dedicated enum value.
+        # We keep old behavior for valid values and ignore unexpected values instead of raising IndexError.
+        # 方向健壮性保护：协议中有效方向是1..8，NONE是单独枚举。
+        # 对合法值保持原逻辑；对异常值不抛异常，避免训练过程中因脏数据中断。
+        if 1 <= rel_pos.direction <= 8:
+            direction[rel_pos.direction - 1] = 1
 
     grid_distance = 1 if rel_pos.grid_distance < 0 else rel_pos.grid_distance / (128 * 128)
     feature = direction + [grid_distance]
@@ -197,8 +203,27 @@ class Agent(BaseAgent):
         # Feature processing 7: Next treasure chest to find
         # 特征处理7：下一个需要寻找的宝箱
         treasure_dists = [pos.grid_distance for pos in treasure_pos_list]
-        if treasure_dists.count(1.0) < 15:
-            end_treasures_id = np.argmin(treasure_dists)
+
+        # NOTE:
+        # - In preprocessor, missing/invisible treasure uses grid_distance = -1.
+        # - The old np.argmin(treasure_dists) could pick -1 as the smallest value,
+        #   causing the agent to target an invalid treasure slot.
+        # 说明：
+        # - 预处理里不可见/不存在宝箱的 grid_distance 是 -1。
+        # - 旧逻辑直接 argmin 会优先选中 -1，导致目标指向无效宝箱。
+        #
+        # Fix strategy:
+        # 1) Keep only valid treasures (grid_distance >= 0);
+        # 2) Choose the nearest among valid ones;
+        # 3) If no valid treasure exists, keep end_pos_features unchanged
+        #    (still use end point feature from step 3).
+        # 修复策略：
+        # 1) 仅保留有效宝箱（grid_distance >= 0）；
+        # 2) 在有效集合中选最近；
+        # 3) 若无有效宝箱，保持原有终点特征不变。
+        valid_treasure_indices = [idx for idx, dist in enumerate(treasure_dists) if dist >= 0]
+        if valid_treasure_indices:
+            end_treasures_id = min(valid_treasure_indices, key=lambda idx: treasure_dists[idx])
             end_pos_features = read_relative_position(treasure_pos_list[end_treasures_id])
 
         # Feature concatenation:

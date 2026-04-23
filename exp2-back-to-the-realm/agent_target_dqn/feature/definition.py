@@ -101,6 +101,18 @@ def reward_shaping(
     # 获取当前智能体的位置坐标
     pos = _obs_data.frame_state.heroes[0].pos
     curr_pos_x, curr_pos_z = pos.x, pos.z
+    move_dist = ((curr_pos_x - obs_data.frame_state.heroes[0].pos.x) ** 2 + (curr_pos_z - obs_data.frame_state.heroes[0].pos.z) ** 2) ** 0.5
+    curr_grid_pos = convert_pos_to_grid_pos(curr_pos_x, curr_pos_z)
+
+    # Extract buff status from frame data for pickup reward shaping.
+    # 从帧数据中提取 buff 状态，用于 buff 拾取奖励。
+    # status=1 means buff exists and can be collected; status=0 means unavailable/consumed.
+    # status=1 表示 buff 可拾取，status=0 表示不可拾取/已被消耗。
+    def _get_buff_status(frame_obs):
+        for organ in frame_obs.frame_state.organs:
+            if organ.sub_type == 2:
+                return organ.status
+        return 0
 
     # Get the grid-based distance of the current agent's position relative to the end point, buff, and treasure chest
     # 获取当前智能体的位置相对于终点, buff, 宝箱的栅格化距离
@@ -122,6 +134,10 @@ def reward_shaping(
         pos.grid_distance if pos.grid_distance > 0 else -1 for pos in remain_info.get("treasure_pos")
     ]
     prev_treasure_collected_count = remain_info.get("treasure_collected_count")
+    prev_buff_dist = remain_info.get("buff_pos").grid_distance
+    curr_buff_dist = _remain_info.get("buff_pos").grid_distance
+    prev_buff_status = _get_buff_status(obs_data)
+    curr_buff_status = _get_buff_status(_obs_data)
 
     # Are there any remaining treasure chests
     # 是否有剩余宝箱
@@ -178,24 +194,69 @@ def reward_shaping(
     # Reward 3.1 Reward for getting closer to the buff
     # 奖励3.1 靠近buff的奖励 (TODO)
     reward_buff_dist = 0
+    # Implemented:
+    # - Only shape this term when buff is visible in at least one of the two consecutive frames.
+    # - If current buff distance decreases, reward; otherwise small penalty.
+    # 已实现：
+    # - 仅在前后帧至少有一帧可见 buff 时计算该项；
+    # - 与 buff 距离变小给奖励，否则给较小惩罚。
+    if prev_buff_dist >= 0 or curr_buff_dist >= 0:
+        if prev_buff_dist < 0 and curr_buff_dist >= 0:
+            # buff enters local view, encourage approaching it.
+            # buff 进入视野，鼓励继续接近。
+            reward_buff_dist = 0.5
+        elif prev_buff_dist >= 0 and curr_buff_dist >= 0:
+            reward_buff_dist = 1 if curr_buff_dist < prev_buff_dist else -0.5
 
     # Reward 3.2 Reward for getting the buff
     # 奖励3.2 获得buff的奖励 (TODO)
     reward_buff = 0
+    # Implemented:
+    # reward buff pickup when status changes from available(1) to unavailable(0).
+    # 已实现：当 buff 从可拾取(1)切换为不可拾取(0)时给拾取奖励。
+    if prev_buff_status == 1 and curr_buff_status == 0:
+        reward_buff = 1
 
     """
     Reward 4. Rewards related to the flicker
     奖励4. 与闪现相关的奖励
     """
     reward_flicker = 0
+    is_flicker = move_dist >= 3000
     # Reward 4.1 Penalty for flickering into the wall (TODO)
     # 奖励4.1 撞墙闪现的惩罚 (TODO)
+    # Implemented in a decomposed way and merged into reward_flicker:
+    # - flicker + bump => explicit penalty.
+    # 分解实现并汇总到 reward_flicker：
+    # - 闪现且撞墙 => 明确惩罚。
+    reward_flicker_bump_penalty = 0
+    if is_flicker and bump(curr_pos_x, curr_pos_z, prev_pos_x, prev_pos_z):
+        reward_flicker_bump_penalty = -1
 
     # Reward 4.2 Reward for normal flickering (TODO)
     # 奖励4.2 正常闪现的奖励 (TODO)
+    # Implemented:
+    # - give a small base bonus for successful flicker (not bumping),
+    #   because flicker is a scarce action with cooldown.
+    # 已实现：
+    # - 对“非撞墙”的有效闪现给一个小基础奖励，
+    #   因为闪现属于有冷却的稀缺动作。
+    reward_flicker_normal = 0
+    if is_flicker and not bump(curr_pos_x, curr_pos_z, prev_pos_x, prev_pos_z):
+        reward_flicker_normal = 0.2
 
     # Reward 4.3 Reward for super flickering (TODO)
     # 奖励4.3 超级闪现的奖励 (TODO)
+    # Implemented:
+    # - extra bonus if flicker creates clear progress:
+    #   approaching end significantly OR collecting treasure.
+    # 已实现：
+    # - 若闪现带来显著进展（明显接近终点或拿到宝箱），额外奖励。
+    reward_flicker_super = 0
+    if is_flicker and (prev_end_dist - end_dist > 2 or treasure_collected_count > prev_treasure_collected_count):
+        reward_flicker_super = 1
+
+    reward_flicker = reward_flicker_bump_penalty + reward_flicker_normal + reward_flicker_super
 
     """
     Reward 5. Rewards for quick clearance
@@ -206,6 +267,13 @@ def reward_shaping(
     # (TODO: Give penalty after collecting all the treasure chests, encourage full collection)
     # 奖励5.1 收集完所有宝箱却未靠近终点的惩罚
     # (TODO: 收集完宝箱后再给予惩罚, 鼓励宝箱全收集)
+    # Implemented:
+    # once all treasures are collected, apply penalty when not approaching the end.
+    # 已实现：
+    # 全宝箱收集后，若没有继续接近终点则给惩罚。
+    reward_post_treasure_to_end = 0
+    if (not is_treasures_remain) and prev_end_dist > 0 and end_dist >= prev_end_dist:
+        reward_post_treasure_to_end = 1
 
     # Reward 5.2 Penalty for repeated exploration
     # 奖励5.2 重复探索的惩罚
@@ -229,13 +297,27 @@ def reward_shaping(
     # 探索奖励
     reward_exploration = 0
     recent_position_map = remain_info.get("recent_position_map")
-    hero_grid_pos = convert_pos_to_grid_pos(curr_pos_x, curr_pos_z)
+    hero_grid_pos = curr_grid_pos
 
     if (hero_grid_pos[0], hero_grid_pos[1]) not in recent_position_map:
         reward_exploration = 1
     else:
         pass_times = recent_position_map[(hero_grid_pos[0], hero_grid_pos[1])]
         reward_exploration = max(-0.5 * pass_times, -10)
+
+    # Anti-spin reward terms
+    # 防止原地打转的奖励项
+    # 1) Penalize low-displacement behavior (standing still or tiny jitter).
+    # 1) 对低位移行为（原地不动或抖动）施加惩罚。
+    reward_stall = 0
+    if move_dist < 150:
+        reward_stall = 1
+
+    # 2) Additional revisit penalty for frequent back-and-forth on the same grids.
+    #    We use recent_position_map frequency to suppress short loops like A-B-A-B.
+    # 2) 对高频回访格子增加惩罚，抑制 A-B-A-B 这类短环路。
+    revisit_times = recent_position_map.get((hero_grid_pos[0], hero_grid_pos[1]), 0)
+    reward_revisit = max(revisit_times - 1, 0)
 
     """
     Concatenation of rewards: Here are 10 rewards provided,
@@ -244,16 +326,19 @@ def reward_shaping(
     """
     reward_weight = {
         "reward_end_dist": 0.5,
-        "reward_win": 0.5,
-        "reward_buff_dist": 0,
-        "reward_buff": 0,
+        "reward_win": 1.0,
+        "reward_buff_dist": 0.2,
+        "reward_buff": 0.5,
         "reward_treasure_dists": 0.5,
         "reward_treasure": 1.0,
-        "reward_flicker": 0,
-        "reward_step": -0.0005,
+        "reward_flicker": 0.3,
+        "reward_step": -0.001,
         "reward_bump": -1.0,
-        "reward_memory": -0.005,
+        "reward_memory": -0.01,
         "reward_exploration": 0.05,
+        "reward_post_treasure_to_end": -0.3,
+        "reward_stall": -0.2,
+        "reward_revisit": -0.03,
     }
 
     reward = [
@@ -268,6 +353,9 @@ def reward_shaping(
         reward_bump * reward_weight["reward_bump"],
         reward_memory * reward_weight["reward_memory"],
         reward_exploration * reward_weight["reward_exploration"],
+        reward_post_treasure_to_end * reward_weight["reward_post_treasure_to_end"],
+        reward_stall * reward_weight["reward_stall"],
+        reward_revisit * reward_weight["reward_revisit"],
     ]
 
     return (
