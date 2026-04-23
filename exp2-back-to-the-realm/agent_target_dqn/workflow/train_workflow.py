@@ -130,7 +130,7 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
             if truncated and frame_no is None:
                 break
 
-            collected_treasures = 0
+            treasures_num = 0
 
             # Calculate reward
             # 计算 reward
@@ -159,7 +159,8 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
                 diy_4 += reward_treasure_dist
                 diy_5 += reward_treasure
 
-                collected_treasures = _obs.game_info.treasure_collected_count
+                treasure_dists = [organ.status for organ in _obs.frame_state.organs]
+                treasures_num = treasure_dists.count(1.0)
 
                 # Wall bump behavior statistics
                 # 撞墙行为统计
@@ -170,12 +171,12 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
             if truncated:
                 logger.info(
                     f"truncated is True, so this episode {episode} timeout, \
-                        collected treasures: {collected_treasures}"
+                        collected treasures: {treasures_num  - 7}"
                 )
             elif terminated:
                 logger.info(
                     f"terminated is True, so this episode {episode} reach the end, \
-                        collected treasures: {collected_treasures}"
+                        collected treasures: {treasures_num  - 7}"
                 )
             done = terminated or truncated
 

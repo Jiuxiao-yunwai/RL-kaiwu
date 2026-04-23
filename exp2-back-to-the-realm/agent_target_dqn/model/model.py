@@ -15,11 +15,8 @@ import torch.nn.functional as F
 
 
 class Model(nn.Module):
-    def __init__(self, state_shape, action_shape=0, softmax=False, use_dueling=True):
+    def __init__(self, state_shape, action_shape=0, softmax=False):
         super().__init__()
-        self.use_dueling = use_dueling
-        self.action_dim = int(np.prod(action_shape)) if action_shape else 0
-
         cnn_layer1 = [
             nn.Conv2d(4, 16, kernel_size=3, stride=1, padding=2),
             nn.BatchNorm2d(16),
@@ -39,26 +36,18 @@ class Model(nn.Module):
         self.cnn_layer = cnn_layer1 + max_pool + cnn_layer2 + max_pool + cnn_layer3 + max_pool
         self.cnn_model = nn.Sequential(*self.cnn_layer)
 
-        self.backbone = nn.Sequential(
-            nn.Linear(np.prod(state_shape), 256),
-            nn.ReLU(inplace=True),
-            nn.Linear(256, 128),
-            nn.ReLU(inplace=True),
-        )
+        fc_layer1 = [nn.Linear(np.prod(state_shape), 256), nn.ReLU(inplace=True)]
+        fc_layer2 = [nn.Linear(256, 128), nn.ReLU(inplace=True)]
+        fc_layer3 = [nn.Linear(128, np.prod(action_shape))]
 
-        if self.use_dueling and self.action_dim:
-            # Dueling head: Q(s,a) = V(s) + A(s,a) - mean(A(s,*))
-            # Dueling头: Q(s,a) = V(s) + A(s,a) - mean(A(s,*))
-            self.value_head = nn.Linear(128, 1)
-            self.adv_head = nn.Linear(128, self.action_dim)
-            self.softmax = nn.Softmax(dim=-1) if softmax else None
-        else:
-            layers = []
-            if self.action_dim:
-                layers.append(nn.Linear(128, self.action_dim))
-            if softmax:
-                layers.append(nn.Softmax(dim=-1))
-            self.model = nn.Sequential(*layers)
+        self.fc_layers = fc_layer1 + fc_layer2
+
+        if action_shape:
+            self.fc_layers += fc_layer3
+        if softmax:
+            self.fc_layers += [nn.Softmax(dim=-1)]
+
+        self.model = nn.Sequential(*self.fc_layers)
 
         self.apply(self.init_weights)
 
@@ -82,13 +71,5 @@ class Model(nn.Module):
 
         concat_feature = torch.concat([feature_vec, feature_maps], dim=1)
 
-        hidden = self.backbone(concat_feature)
-        if self.use_dueling and self.action_dim:
-            value = self.value_head(hidden)
-            advantage = self.adv_head(hidden)
-            logits = value + advantage - advantage.mean(dim=1, keepdim=True)
-            if self.softmax is not None:
-                logits = self.softmax(logits)
-        else:
-            logits = self.model(hidden)
+        logits = self.model(concat_feature)
         return logits, state

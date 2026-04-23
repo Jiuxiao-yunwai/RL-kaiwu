@@ -50,41 +50,16 @@ class Config:
     # target网络的更新频率
     TARGET_UPDATE_FREQ = 500
 
-    # Exploration decay horizon in steps.
-    # 探索衰减步数上限
+    # Exploration factor, see the calculation of epsilon in the function in the above comment
+    # 探索因子, epsilon的计算见上面注释中的函数
     EPSILON_GREEDY_PROBABILITY = 300000
 
     # Discount factor GAMMA in RL
     # RL中的回报折扣GAMMA
     GAMMA = 0.9
 
-    # Initial epsilon
-    # 初始epsilon
+    # epsilon
     EPSILON = 0.1
-
-    # Minimum epsilon during training (kept >= 0.1 to retain exploration)
-    # 训练过程中的最小epsilon（保持>=0.1）
-    MIN_EPSILON = 0.1
-
-    # Reward shaping
-    # 奖励塑形相关配置
-    STEP_PENALTY = -0.01
-    PROGRESS_REWARD_CLIP = 1.5
-    EXPLORATION_BONUS_SCALE = 0.2
-    EXPLORATION_BONUS_MIN = -0.2
-
-    # Local semantic map window radius used in observation features
-    # 观测特征中的局部语义窗口半径
-    LOCAL_SEMANTIC_VIEW_SIZE = VIEW_SIZE
-
-    # DQN variants
-    # DQN 变体开关
-    USE_DUELING = True
-    USE_DOUBLE_DQN = True
-
-    # PER scaffold switch (framework only; disabled by default)
-    # PER 基础框架开关（默认关闭）
-    USE_PER = False
 
     # Initial learning rate
     # 初始的学习率
