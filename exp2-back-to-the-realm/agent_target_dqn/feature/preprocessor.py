@@ -122,9 +122,13 @@ def get_direction(pos_1, pos_2):
 
     # Encode the direction based on the angle; refer to the protocol for the encoding method
     # 根据角度对方向进行编码，编码方式见协议
-    r_direction = round(theta / (math.pi / 4)) + 1
-    if r_direction == 9:
-        r_direction = 1
+    # r_direction = round(theta / (math.pi / 4)) + 1
+    # if r_direction == 9:
+    #     r_direction = 1
+
+    r_direction = round(theta / (math.pi / 4))
+    if r_direction == 8:
+        r_direction = 0
     return r_direction
 
 
@@ -256,7 +260,7 @@ def convert_pos_to_grid_pos(x, z):
 
     # This step is necessary in order to be aligned with the order of json files
     # 这一步是必要的，用于与 json 文件的顺序保持一致
-    x, z = z, x
+    # x, z = z, x
 
     return (x, z)
 
@@ -280,7 +284,7 @@ def get_grid_pos(x, z):
 
     # This step is necessary in order to be aligned with the order of json files
     # 这一步是必要的，用于与 json 文件的顺序保持一致
-    x, z = z, x
+    # x, z = z, x
 
     return Position(x=x, z=z)
 
