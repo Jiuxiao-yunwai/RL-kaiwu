@@ -120,6 +120,15 @@ def reward_shaping(
     treasure_dists = [pos.grid_distance if pos.grid_distance > 0 else -1 for pos in _remain_info.get("treasure_pos")]
     treasure_count = _remain_info.get("treasure_count")
     treasure_collected_count = _remain_info.get("treasure_collected_count")
+    treasure_total = max(int(treasure_count), 1)
+    collection_ratio = float(treasure_collected_count) / float(treasure_total)
+    # frame_no is frame index and 1 step ~= 3 frames in this env.
+    # frame_no是帧编号，本环境中约3帧=1步。
+    est_step = max(float(frame_no) / 3.0, 0.0) if frame_no is not None else 0.0
+    # max_step comes from env config; fallback to documentation default(2000).
+    # max_step来自环境配置；缺省回退到文档默认值2000。
+    max_step_cfg = float(getattr(_obs_data.game_info, "max_step", 2000))
+    step_efficiency = max((max_step_cfg - est_step) / max(max_step_cfg, 1.0), 0.0)
 
     # Get the agent's position from the previous frame
     # 获取智能体上一帧的位置
@@ -150,14 +159,51 @@ def reward_shaping(
     reward_end_dist = 0
     # Reward 1.1 Reward for getting closer to the end point
     # 奖励1.1 向终点靠近的奖励
-    if prev_end_dist > 0 and treasure_collected_count > 0:
-        reward_end_dist = 1 if end_dist < prev_end_dist else -1
+    # Keep this term active for the whole episode to prioritize reaching end first.
+    # 该项在全程生效，用于明确“优先到达终点”的训练目标。
+    if prev_end_dist > 0:
+        # Old implementation (binary):
+        # reward_end_dist = 1 if end_dist < prev_end_dist else -1
+        # 旧实现（二值）：
+        # reward_end_dist = 1 if end_dist < prev_end_dist else -1
+        #
+        # Problem:
+        # - It penalizes all non-improving steps equally, including side moves
+        #   that are necessary near obstacles, which may destabilize training.
+        # 问题：
+        # - 旧逻辑会把所有“非变好”动作一律重罚，
+        #   包括绕障碍时必要的横移，容易导致学习震荡。
+        #
+        # New implementation:
+        # - Use distance delta as a continuous signal.
+        # - Add a deadband to avoid tiny numerical/geometry jitters being treated as regressions.
+        # - Clip reward magnitude for stability.
+        # 新实现：
+        # - 使用距离变化量作为连续信号；
+        # - 增加容忍区间，避免微小抖动被误判为退步；
+        # - 限幅保证训练稳定。
+        delta_end = prev_end_dist - end_dist
+        deadband = 0.25
+        if abs(delta_end) <= deadband:
+            reward_end_dist = 0
+        else:
+            reward_end_dist = max(min(delta_end / 3.0, 1.0), -1.0)
 
     # Reward 1.2 Reward for winning
     # 奖励1.2 获胜的奖励
     reward_win = 0
     if terminated:
-        reward_win = treasure_collected_count
+        # Align with official scoring intent:
+        # score = end(150) + treasure(100 * collected) + step_bonus(0.2 * (max_step - used_step)).
+        # We use normalized components to avoid exploding scale in RL training.
+        # 对齐官方得分意图：
+        # score = 终点(150) + 宝箱(100*收集数) + 步数奖励(0.2*(max_step-used_step))。
+        # 这里用归一化形式，避免RL训练中数值过大不稳定。
+        reward_win = 1.5 + 1.0 * collection_ratio + 0.5 * step_efficiency
+
+    # Reward 1.3 Timeout penalty
+    # 奖励1.3 超时惩罚
+    reward_timeout = 1 if truncated else 0
 
     """
     Reward 2. Rewards related to the treasure chest
@@ -173,19 +219,36 @@ def reward_shaping(
         # If there are visible treasure chests
         # 如果有可见的宝箱
         if visible_dists:
-            min_dist = min(visible_dists)
-            min_index = treasure_dists.index(min_dist)
-            prev_min_dist = prev_treasure_dists[min_index]
-            if min_dist < prev_min_dist or prev_min_dist < 0:
-                reward_treasure_dist = 1
+            # Old implementation was binary +/-1.
+            # 旧实现是二值 +/-1。
+            # Here we make it continuous and robust to tiny geometry jitters.
+            # 这里改成连续奖励，并加入微小抖动容忍。
+            prev_visible_dists = [d for d in prev_treasure_dists if d > 0]
+            if prev_visible_dists:
+                curr_min_dist = min(visible_dists)
+                prev_min_dist = min(prev_visible_dists)
+                delta_treasure = prev_min_dist - curr_min_dist
+                deadband = 0.25
+                if abs(delta_treasure) <= deadband:
+                    reward_treasure_dist = 0
+                else:
+                    reward_treasure_dist = max(min(delta_treasure / 3.0, 1.0), -1.0)
             else:
-                reward_treasure_dist = -1
+                # If treasure just appears in view, give a small positive shaping signal.
+                # 若宝箱刚进入视野，给小幅正向塑形奖励。
+                reward_treasure_dist = 0.3
 
     # Reward 2.2 Reward for getting the treasure chest
     # 奖励2.2 获得宝箱的奖励
     reward_treasure = 0
     if treasure_collected_count > prev_treasure_collected_count:
         reward_treasure = 1
+
+    # Reward 2.3 Bonus when all treasures are collected for the first time in the episode
+    # 奖励2.3 对局内首次“全宝箱收集完成”奖励
+    reward_all_treasure = 0
+    if treasure_count > 0 and prev_treasure_collected_count < treasure_count and treasure_collected_count == treasure_count:
+        reward_all_treasure = 1
 
     """
     Reward 3. Rewards related to the buff
@@ -275,6 +338,20 @@ def reward_shaping(
     if (not is_treasures_remain) and prev_end_dist > 0 and end_dist >= prev_end_dist:
         reward_post_treasure_to_end = 1
 
+    # Reward 5.1.1 Terminal treasure consistency
+    # 奖励5.1.1 终局宝箱一致性奖励/惩罚
+    # Perfect clear bonus: reach end and collect all treasures.
+    # 完美通关奖励：到达终点且收齐宝箱。
+    reward_perfect_clear = 0
+    if terminated and treasure_count > 0 and treasure_collected_count == treasure_count:
+        reward_perfect_clear = 1
+
+    # If reach end without full collection, apply a mild penalty (not too strong, keep end-first objective).
+    # 若到终点但未全收集，给轻微惩罚（不宜过强，避免破坏终点优先）。
+    reward_missing_treasure_on_finish = 0
+    if terminated and treasure_count > 0 and treasure_collected_count < treasure_count:
+        reward_missing_treasure_on_finish = (treasure_count - treasure_collected_count) / float(treasure_count)
+
     # Reward 5.2 Penalty for repeated exploration
     # 奖励5.2 重复探索的惩罚
     reward_memory = 0
@@ -325,18 +402,28 @@ def reward_shaping(
     奖励的拼接: 这里提供了10个奖励, 同学们按需自行拼接, 也可以自行添加新的奖励
     """
     reward_weight = {
-        "reward_end_dist": 0.5,
-        "reward_win": 1.0,
-        "reward_buff_dist": 0.2,
-        "reward_buff": 0.5,
+        # Priority order follows task scoring semantics:
+        # 1) reach end; 2) collect treasures; 3) be efficient.
+        # 优先级按任务计分语义：
+        # 1) 到终点；2) 收宝箱；3) 高效率。
+        "reward_end_dist": 0.9,
+        "reward_win": 4.0,
+        "reward_timeout": -4.5,
+        # Buff/flicker are auxiliary behaviors; keep small to avoid objective drift.
+        # buff/闪现是辅助行为，权重保持较小，避免目标漂移。
+        "reward_buff_dist": 0.05,
+        "reward_buff": 0.1,
         "reward_treasure_dists": 0.5,
-        "reward_treasure": 1.0,
-        "reward_flicker": 0.3,
+        "reward_treasure": 1.2,
+        "reward_all_treasure": 1.5,
+        "reward_flicker": 0.05,
         "reward_step": -0.001,
         "reward_bump": -1.0,
         "reward_memory": -0.01,
         "reward_exploration": 0.05,
-        "reward_post_treasure_to_end": -0.3,
+        "reward_post_treasure_to_end": -0.2,
+        "reward_perfect_clear": 2.5,
+        "reward_missing_treasure_on_finish": -0.3,
         "reward_stall": -0.2,
         "reward_revisit": -0.03,
     }
@@ -344,16 +431,20 @@ def reward_shaping(
     reward = [
         reward_end_dist * reward_weight["reward_end_dist"],
         reward_win * reward_weight["reward_win"],
+        reward_timeout * reward_weight["reward_timeout"],
         reward_buff_dist * reward_weight["reward_buff_dist"],
         reward_buff * reward_weight["reward_buff"],
         reward_treasure_dist * reward_weight["reward_treasure_dists"],
         reward_treasure * reward_weight["reward_treasure"],
+        reward_all_treasure * reward_weight["reward_all_treasure"],
         reward_flicker * reward_weight["reward_flicker"],
         reward_step * reward_weight["reward_step"],
         reward_bump * reward_weight["reward_bump"],
         reward_memory * reward_weight["reward_memory"],
         reward_exploration * reward_weight["reward_exploration"],
         reward_post_treasure_to_end * reward_weight["reward_post_treasure_to_end"],
+        reward_perfect_clear * reward_weight["reward_perfect_clear"],
+        reward_missing_treasure_on_finish * reward_weight["reward_missing_treasure_on_finish"],
         reward_stall * reward_weight["reward_stall"],
         reward_revisit * reward_weight["reward_revisit"],
     ]
