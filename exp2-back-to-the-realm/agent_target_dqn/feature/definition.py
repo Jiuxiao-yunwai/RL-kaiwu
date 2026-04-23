@@ -85,6 +85,19 @@ def convert_pos_to_grid_pos(x, z):
     return x, z
 
 
+def clipped_progress_reward(prev_dist, curr_dist, clip_value=1.0):
+    """
+    Convert a distance change into a bounded dense reward.
+    将距离变化转换成有界的稠密奖励。
+    """
+    if prev_dist is None or curr_dist is None:
+        return 0.0
+    if prev_dist < 0 or curr_dist < 0:
+        return 0.0
+
+    return float(np.clip(prev_dist - curr_dist, -clip_value, clip_value))
+
+
 def reward_shaping(
     frame_no,
     score,
@@ -95,15 +108,22 @@ def reward_shaping(
     obs_data,
     _obs_data,
 ):
-    reward = 0
-
     # Get the current position coordinates of the agent
     # 获取当前智能体的位置坐标
     pos = _obs_data.frame_state.heroes[0].pos
     curr_pos_x, curr_pos_z = pos.x, pos.z
 
-    # Get the grid-based distance of the current agent's position relative to the end point, buff, and treasure chest
-    # 获取当前智能体的位置相对于终点, buff, 宝箱的栅格化距离
+    # The total_score in observation is aligned with the real task objective:
+    # reaching the end and collecting treasure are both reflected here,
+    # and timeout episodes will naturally lose those gains.
+    # observation 里的 total_score 和真实任务目标一致：
+    # 到终点、拿宝箱都会体现出来，超时也会自然丢掉这些收益。
+    prev_total_score = obs_data.game_info.total_score
+    curr_total_score = _obs_data.game_info.total_score
+    reward_score = (curr_total_score - prev_total_score) / 100.0
+
+    # Get the current agent's distance to the end point and treasure chests
+    # 获取当前智能体到终点和宝箱的距离
     end_dist = _remain_info.get("end_pos").l2_distance
     treasure_dists = [pos.grid_distance if pos.grid_distance > 0 else -1 for pos in _remain_info.get("treasure_pos")]
     treasure_count = _remain_info.get("treasure_count")
@@ -114,9 +134,8 @@ def reward_shaping(
     prev_pos = obs_data.frame_state.heroes[0].pos
     prev_pos_x, prev_pos_z = prev_pos.x, prev_pos.z
 
-    # Get the grid-based distance of the agent's position from the previous
-    # frame relative to the end point, buff, and treasure chest
-    # 获取智能体上一帧相对于终点，buff, 宝箱的栅格化距离
+    # Get the previous frame's distance to the end point and treasure chests
+    # 获取智能体上一帧到终点和宝箱的距离
     prev_end_dist = remain_info.get("end_pos").l2_distance
     prev_treasure_dists = [
         pos.grid_distance if pos.grid_distance > 0 else -1 for pos in remain_info.get("treasure_pos")
@@ -131,45 +150,41 @@ def reward_shaping(
     Reward 1. Reward related to the end point
     奖励1. 与终点相关的奖励
     """
-    reward_end_dist = 0
-    # Reward 1.1 Reward for getting closer to the end point
-    # 奖励1.1 向终点靠近的奖励
-    if prev_end_dist > 0 and treasure_collected_count > 0:
-        reward_end_dist = 1 if end_dist < prev_end_dist else -1
+    reward_end_dist = clipped_progress_reward(prev_end_dist, end_dist)
 
-    # Reward 1.2 Reward for winning
-    # 奖励1.2 获胜的奖励
-    reward_win = 0
-    if terminated:
-        reward_win = treasure_collected_count
+    # Reward 1.2 Bonus for completing the task successfully
+    # 奖励1.2 成功通关奖励
+    reward_success = 1.0 if terminated else 0.0
+
+    # Reward 1.3 Penalty for timeout / interruption
+    # 奖励1.3 超时或中断惩罚
+    reward_timeout = 1.0 if truncated else 0.0
 
     """
     Reward 2. Rewards related to the treasure chest
     奖励2. 与宝箱相关的奖励
     """
-    reward_treasure_dist = 0
-    # Reward 2.1 Reward for getting closer to the treasure chest (only consider the nearest one)
-    # 奖励2.1 向宝箱靠近的奖励(只考虑最近的那个宝箱)
+    reward_treasure_dist = 0.0
+    has_visible_treasure = False
+
+    # Reward 2.1 Reward for getting closer to the nearest visible treasure chest
+    # 奖励2.1 向最近可见宝箱靠近的奖励
     if is_treasures_remain:
-        # Filter out invisible treasure chests (distance is -1)
-        # 过滤掉不可见的宝箱(距离为-1)
-        visible_dists = [d for d in treasure_dists if d > 0]
-        # If there are visible treasure chests
-        # 如果有可见的宝箱
+        visible_indices = [idx for idx, dist in enumerate(treasure_dists) if dist > 0]
+        has_visible_treasure = len(visible_indices) > 0
+
+        # Only use visible treasure chests for dense shaping to avoid noisy signals
+        # 稠密奖励只使用可见宝箱，避免远处不可达目标带来噪声
+        visible_dists = [treasure_dists[idx] for idx in visible_indices]
         if visible_dists:
             min_dist = min(visible_dists)
             min_index = treasure_dists.index(min_dist)
             prev_min_dist = prev_treasure_dists[min_index]
-            if min_dist < prev_min_dist or prev_min_dist < 0:
-                reward_treasure_dist = 1
-            else:
-                reward_treasure_dist = -1
+            reward_treasure_dist = clipped_progress_reward(prev_min_dist, min_dist)
 
     # Reward 2.2 Reward for getting the treasure chest
     # 奖励2.2 获得宝箱的奖励
-    reward_treasure = 0
-    if treasure_collected_count > prev_treasure_collected_count:
-        reward_treasure = 1
+    reward_treasure = max(0, treasure_collected_count - prev_treasure_collected_count)
 
     """
     Reward 3. Rewards related to the buff
@@ -210,12 +225,10 @@ def reward_shaping(
     # Reward 5.2 Penalty for repeated exploration
     # 奖励5.2 重复探索的惩罚
     reward_memory = 0
-    memory_map = remain_info.get("memory_map")
-    reward_memory = memory_map[len(memory_map) // 2]
 
     # Reward 5.3 Penalty for bumping into the wall
     # 奖励5.3 撞墙的惩罚
-    reward_bump = 0
+    reward_bump = 0.0
     is_bump = bump(curr_pos_x, curr_pos_z, prev_pos_x, prev_pos_z)
     # Determine whether it bumps into the wall
     # 判断是否撞墙
@@ -223,19 +236,31 @@ def reward_shaping(
         # Give a relatively large penalty for bumping into the wall,
         # so that the agent can learn not to bump into the wall as soon as possible
         # 对撞墙给予一个比较大的惩罚，以便agent能够尽快学会不撞墙
-        reward_bump = 1
+        reward_bump = 1.0
 
     # Exploration Reward
     # 探索奖励
-    reward_exploration = 0
+    reward_exploration = 0.0
     recent_position_map = remain_info.get("recent_position_map")
     hero_grid_pos = convert_pos_to_grid_pos(curr_pos_x, curr_pos_z)
+    pass_times = recent_position_map.get((hero_grid_pos[0], hero_grid_pos[1]), 0)
 
-    if (hero_grid_pos[0], hero_grid_pos[1]) not in recent_position_map:
-        reward_exploration = 1
+    if pass_times <= 1:
+        reward_exploration = 1.0
     else:
-        pass_times = recent_position_map[(hero_grid_pos[0], hero_grid_pos[1])]
-        reward_exploration = max(-0.5 * pass_times, -10)
+        reward_exploration = max(1.0 - 0.35 * pass_times, -1.5)
+
+    # When treasure is already visible, exploration should step back and let
+    # the policy focus on collecting the treasure or finishing the route.
+    # 当宝箱已经可见时，探索奖励应适当退让，让策略更专注于拿宝箱或走终点。
+    if has_visible_treasure:
+        reward_exploration *= 0.25
+    elif not is_treasures_remain:
+        reward_exploration *= 0.1
+
+    end_progress_weight = 0.7 if not is_treasures_remain else 0.45
+    treasure_progress_weight = 0.35 if has_visible_treasure else 0.0
+    exploration_weight = 0.08 if is_treasures_remain and not has_visible_treasure else 0.02
 
     """
     Concatenation of rewards: Here are 10 rewards provided,
@@ -243,22 +268,26 @@ def reward_shaping(
     奖励的拼接: 这里提供了10个奖励, 同学们按需自行拼接, 也可以自行添加新的奖励
     """
     reward_weight = {
-        "reward_end_dist": 0.5,
-        "reward_win": 0.5,
+        "reward_score": 1.0,
+        "reward_end_dist": end_progress_weight,
+        "reward_success": 2.0,
+        "reward_timeout": -6.0,
         "reward_buff_dist": 0,
         "reward_buff": 0,
-        "reward_treasure_dists": 0.5,
-        "reward_treasure": 1.0,
+        "reward_treasure_dists": treasure_progress_weight,
+        "reward_treasure": 0.4,
         "reward_flicker": 0,
-        "reward_step": -0.0005,
+        "reward_step": -0.002,
         "reward_bump": -1.0,
-        "reward_memory": -0.005,
-        "reward_exploration": 0.05,
+        "reward_memory": 0,
+        "reward_exploration": exploration_weight,
     }
 
     reward = [
+        reward_score * reward_weight["reward_score"],
         reward_end_dist * reward_weight["reward_end_dist"],
-        reward_win * reward_weight["reward_win"],
+        reward_success * reward_weight["reward_success"],
+        reward_timeout * reward_weight["reward_timeout"],
         reward_buff_dist * reward_weight["reward_buff_dist"],
         reward_buff * reward_weight["reward_buff"],
         reward_treasure_dist * reward_weight["reward_treasure_dists"],
