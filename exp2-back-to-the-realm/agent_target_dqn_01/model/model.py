@@ -90,6 +90,8 @@ class Model(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
+    # Forward inference
+    # 前向推理
     def forward(self, s, state=None, info=None):
         feature_vec, feature_maps = s[0], s[1]
         feature_maps = self.cnn_model(feature_maps)
