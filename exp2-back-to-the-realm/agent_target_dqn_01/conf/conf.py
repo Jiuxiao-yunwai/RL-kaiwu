@@ -5,6 +5,7 @@
 ###########################################################################
 """
 Author: Tencent AI Arena Authors
+Optimized: 超参数调优 - 更适合13宝箱全收集任务
 """
 
 
@@ -28,7 +29,7 @@ class Config:
     # Size of observation. Note that in our sample code the original feature dimension is 10808.
     # Here is the dimension after CNN processing and the original vector feature concatenation.
     # observation的维度，注意在我们的示例代码中原特征维度是10808，这里是经过CNN处理之后的维度与原始向量特征拼接后的维度
-    DIM_OF_OBSERVATION = 4096 + 404
+    DIM_OF_OBSERVATION = 2304 + 404
 
     # Dimension of movement action direction
     # 移动动作方向的维度
@@ -46,24 +47,38 @@ class Config:
     # 描述如何进行特征分割，示例代码中的特征处理成向量+特征图，以下配置描述了两者的维度
     DESC_OBS_SPLIT = [404, (4, VIEW_SIZE * 2 + 1, VIEW_SIZE * 2 + 1)]  # sum = 10808
 
-    # Update frequency of target network
-    # target网络的更新频率
-    TARGET_UPDATE_FREQ = 500
+    # ========================================
+    # 优化后的超参数
+    # ========================================
 
-    # Exploration factor, see the calculation of epsilon in the function in the above comment
-    # 探索因子, epsilon的计算见上面注释中的函数
+    # Target网络软更新频率 (每N步做一次Polyak average)
+    # 原值500，配合soft update使用
+    TARGET_UPDATE_FREQ = 200
+
+    # 初始探索率 - 从高探索开始
+    # 原值0.1
+    EPSILON = 1.0
+    
+    # 最小探索率 - 保持少量随机探索
+    EPSILON_MIN = 0.02
+    
+    # 探索率衰减系数 (每次predict调用)
+    # 使用指数衰减: epsilon = max(min, epsilon * decay)
+    EPSILON_DECAY = 0.9999
+    
+    # 保留旧参数以兼容
     EPSILON_GREEDY_PROBABILITY = 300000
 
     # Discount factor GAMMA in RL
     # RL中的回报折扣GAMMA
-    GAMMA = 0.9
-
-    # epsilon
-    EPSILON = 0.1
+    # 原值0.9，对于需要长期规划的任务(1000步)太低
+    # 0.99意味着100步后的奖励还能保留约37%的权重
+    GAMMA = 0.99
 
     # Initial learning rate
     # 初始的学习率
-    START_LR = 1e-4
+    # 原值1e-4，稍微提高以加速初期训练
+    START_LR = 3e-4
 
     # Configuration about kaiwu usage. The following configurations can be ignored
     # 关于开悟平台使用的配置，是可以忽略的配置，不需要改动

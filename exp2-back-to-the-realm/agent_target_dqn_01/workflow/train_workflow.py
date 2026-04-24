@@ -5,6 +5,7 @@
 ###########################################################################
 """
 Author: Tencent AI Arena Authors
+Optimized: 训练工作流优化 - 更详细的日志、更好的样本管理
 """
 
 
@@ -26,8 +27,15 @@ def workflow(envs, agents, logger=None, monitor=None):
     env, agent = envs[0], agents[0]
     epoch_num = 100000
     episode_num_every_epoch = 1
-    g_data_truncat = 256
+    # 增大样本截断长度，让每次learn能看到更长的序列关系
+    g_data_truncat = 512
     last_save_model_time = 0
+
+    # 统计最佳表现
+    best_treasure_count = 0
+    best_total_score = 0
+    win_count = 0
+    total_episodes = 0
 
     # Read and validate configuration file
     # 配置文件读取和校验
@@ -104,6 +112,7 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
         diy_3 = 0
         diy_4 = 0
         diy_5 = 0
+        episode_total_reward = 0
 
         while not done:
             # Agent performs inference, gets the predicted action for the next frame
@@ -158,6 +167,7 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
                 diy_3 += reward_exploration
                 diy_4 += reward_treasure_dist
                 diy_5 += reward_treasure
+                episode_total_reward += reward
 
                 treasure_dists = [organ.status for organ in _obs.frame_state.organs]
                 treasures_num = treasure_dists.count(1.0)
@@ -170,13 +180,19 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
             # 判断游戏结束, 并更新胜利次数
             if truncated:
                 logger.info(
-                    f"truncated is True, so this episode {episode} timeout, \
-                        collected treasures: {treasures_num  - 7}"
+                    f"Episode {episode} TIMEOUT | "
+                    f"Steps: {step} | "
+                    f"Treasures: {treasures_num - 7} | "
+                    f"Bumps: {bump_cnt} | "
+                    f"Total Reward: {episode_total_reward:.2f}"
                 )
             elif terminated:
                 logger.info(
-                    f"terminated is True, so this episode {episode} reach the end, \
-                        collected treasures: {treasures_num  - 7}"
+                    f"Episode {episode} REACHED END | "
+                    f"Steps: {step} | "
+                    f"Treasures: {treasures_num - 7} | "
+                    f"Bumps: {bump_cnt} | "
+                    f"Total Reward: {episode_total_reward:.2f}"
                 )
             done = terminated or truncated
 

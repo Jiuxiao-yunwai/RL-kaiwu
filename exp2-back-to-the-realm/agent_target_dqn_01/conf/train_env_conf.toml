@@ -24,13 +24,15 @@ end = 1
 # 若开启固定，则使用treasure_id生成固定宝箱。
 # 若开启随机，则使用treasure_count随机生成宝箱。
 # 宝箱是否随机
-# 默认值为true。
+# 评估时固定13个宝箱，训练时也使用13个宝箱以对齐分布
+# 训练时使用随机宝箱增加泛化性，但数量必须是13
 treasure_random = true
 
 # Integer, 0~13, and the default value is 8.
 # Description: Number of chests. Only works when treasure_random = true
 # 整型，生成随机宝箱时的宝箱数量，仅在treasure_random = true时生效，取值范围为0~13，默认值为8。
-treasure_count = 8
+# 关键修改: 8 → 13，对齐评估环境的宝箱数量!
+treasure_count = 13
 
 # The treasure chest number when generating a fixed treasure chest.
 # It is only valid when treasure_random = false. It is an array with a value range of 1 to 15. The default value is [].
@@ -41,7 +43,7 @@ treasure_id = []
 
 # Is hero talent.
 # Integer. The default value is 1, 1 means flash.
-# Other values ​​are illegal.
+# Other values are illegal.
 # 整型，默认值为1，1表示超级闪现技能，其他值非法。
 # 英雄技能
 talent_type = 1
@@ -49,5 +51,6 @@ talent_type = 1
 # Integer, Value range: 1~2000, default: 2000
 # Description: Max step
 # 整型，取值范围1~2000, 默认2000
-# 最大步数
-max_step = 2000
+# 最大步数 - 评估用1000，训练用1500给予更多探索空间
+# 训练时稍微放宽步数，但不要太多以避免训练缓慢
+max_step = 1500

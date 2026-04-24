@@ -5,6 +5,7 @@
 ###########################################################################
 """
 Author: Tencent AI Arena Authors
+Optimized: Double DQN + Dueling架构 + 梯度裁剪 + Huber Loss
 """
 
 
@@ -25,7 +26,8 @@ class Algorithm:
         self.talent_direction = Config.DIM_OF_TALENT
         self.obs_shape = Config.DIM_OF_OBSERVATION
         self.epsilon = Config.EPSILON
-        self.egp = Config.EPSILON_GREEDY_PROBABILITY
+        self.epsilon_min = Config.EPSILON_MIN
+        self.epsilon_decay = Config.EPSILON_DECAY
         self.target_update_freq = Config.TARGET_UPDATE_FREQ
         self.obs_split = Config.DESC_OBS_SPLIT
         self._gamma = Config.GAMMA
@@ -37,12 +39,30 @@ class Algorithm:
             softmax=False,
         )
         self.model.to(self.device)
-        self.optim = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        
+        # Adam优化器 with weight decay正则化
+        self.optim = torch.optim.Adam(
+            self.model.parameters(), 
+            lr=self.lr,
+            weight_decay=1e-5,
+        )
+        
+        # 学习率调度器 - Cosine Annealing
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            self.optim, 
+            T_0=2000,   # 每2000步一个周期
+            T_mult=2,   # 周期倍增
+            eta_min=1e-6,
+        )
+        
         self.target_model = deepcopy(self.model)
         self.train_step = 0
         self.predict_count = 0
         self.last_report_monitor_time = 0
         self.monitor = monitor
+        
+        # Huber Loss (Smooth L1 Loss) - 对异常值更鲁棒
+        self.loss_fn = torch.nn.SmoothL1Loss()
 
     def learn(self, list_sample_data):
 
@@ -84,31 +104,49 @@ class Algorithm:
             self.__convert_to_tensor(_batch_feature_map).view(batch, *self.obs_split[1]),
         ]
 
-        model = getattr(self, "target_model")
-        model.eval()
+        # =============================================
+        # Double DQN: 用online网络选动作，用target网络评估Q值
+        # 这样可以有效缓解Q值过高估计的问题
+        # =============================================
+        
+        # 1. 使用online网络选择下一状态的最优动作
+        self.model.eval()
         with torch.no_grad():
-            q, h = model(_batch_feature, state=None)
-            q = q.masked_fill(~_batch_obs_legal, float(torch.min(q)))
-            q_max = q.max(dim=1).values.detach()
+            q_online, _ = self.model(_batch_feature, state=None)
+            q_online = q_online.masked_fill(~_batch_obs_legal, float('-inf'))
+            next_actions = q_online.argmax(dim=1, keepdim=True)
+        
+        # 2. 使用target网络评估所选动作的Q值
+        self.target_model.eval()
+        with torch.no_grad():
+            q_target, _ = self.target_model(_batch_feature, state=None)
+            q_max = q_target.gather(1, next_actions).squeeze(1).detach()
 
         target_q = rew + self._gamma * q_max * not_done
 
+        # 3. 前向传播计算当前Q值
         self.optim.zero_grad()
+        self.model.train()
+        logits, _ = self.model(batch_feature, state=None)
+        current_q = logits.gather(1, batch_action).squeeze(1)
 
-        model = getattr(self, "model")
-        model.train()
-        logits, h = model(batch_feature, state=None)
-
-        loss = torch.square(target_q - logits.gather(1, batch_action).view(-1)).mean()
+        # 使用Huber Loss替代MSE，对异常值更鲁棒
+        loss = self.loss_fn(current_q, target_q)
         loss.backward()
+        
+        # 梯度裁剪 - 防止梯度爆炸
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
+        
         self.optim.step()
+        
+        # 学习率调度
+        self.scheduler.step()
 
         self.train_step += 1
 
-        # Update the target network
-        # 更新target网络
+        # 软更新target网络 (Polyak averaging)
         if self.train_step % self.target_update_freq == 0:
-            self.update_target_q()
+            self.soft_update_target(tau=0.005)
 
         value_loss = loss.detach().item()
         q_value = target_q.mean().detach().item()
@@ -132,7 +170,7 @@ class Algorithm:
         if isinstance(data, list):
             data = [np.array(item, dtype=np.float32) for item in data]
         elif isinstance(data, np.ndarray):
-            if data.dtype == np.object:
+            if data.dtype == np.object_:
                 data = data.astype(np.float32)
             else:
                 data = data.astype(np.float32)
@@ -161,10 +199,16 @@ class Algorithm:
         )
         model = self.model
         model.eval()
-        # Exploration factor,
-        # we want epsilon to decrease as the number of prediction steps increases, until it reaches 0.1
-        # 探索因子, 我们希望epsilon随着预测步数越来越小，直到0.1为止
-        self.epsilon = max(0.1, self.epsilon - self.predict_count / self.egp)
+        
+        # =============================================
+        # 改进的epsilon-greedy策略
+        # 使用指数衰减，更快收敛到利用模式
+        # =============================================
+        if not exploit_flag:
+            self.epsilon = max(
+                self.epsilon_min, 
+                self.epsilon * self.epsilon_decay
+            )
 
         with torch.no_grad():
             # epsilon greedy
@@ -179,12 +223,25 @@ class Algorithm:
                     self.__convert_to_tensor(feature_map).view(batch, *self.obs_split[1]),
                 ]
                 logits, _ = model(feature, state=None)
-                logits = logits.masked_fill(~legal_act, float(torch.min(logits)))
+                logits = logits.masked_fill(~legal_act, float('-inf'))
                 act = logits.argmax(dim=1).cpu().view(-1, 1).tolist()
 
         format_action = [[instance[0] % self.direction_space, instance[0] // self.direction_space] for instance in act]
         self.predict_count += 1
         return [ActData(move_dir=i[0], use_talent=i[1]) for i in format_action]
+
+    def soft_update_target(self, tau=0.005):
+        """
+        软更新target网络 (Polyak averaging)
+        θ_target = τ * θ_online + (1 - τ) * θ_target
+        比硬拷贝更平滑，训练更稳定
+        """
+        for target_param, online_param in zip(
+            self.target_model.parameters(), self.model.parameters()
+        ):
+            target_param.data.copy_(
+                tau * online_param.data + (1.0 - tau) * target_param.data
+            )
 
     def update_target_q(self):
         self.target_model.load_state_dict(self.model.state_dict())
