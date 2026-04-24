@@ -5,7 +5,7 @@
 ###########################################################################
 """
 Author: Tencent AI Arena Authors
-Optimized: Double DQN + Dueling架构 + 梯度裁剪 + Huber Loss
+Optimized: Double DQN + 精简训练流程，极致训练效率
 """
 
 
@@ -40,19 +40,10 @@ class Algorithm:
         )
         self.model.to(self.device)
         
-        # Adam优化器 with weight decay正则化
+        # Adam优化器
         self.optim = torch.optim.Adam(
             self.model.parameters(), 
             lr=self.lr,
-            weight_decay=1e-5,
-        )
-        
-        # 学习率调度器 - Cosine Annealing
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optim, 
-            T_0=2000,   # 每2000步一个周期
-            T_mult=2,   # 周期倍增
-            eta_min=1e-6,
         )
         
         self.target_model = deepcopy(self.model)
@@ -61,15 +52,13 @@ class Algorithm:
         self.last_report_monitor_time = 0
         self.monitor = monitor
         
-        # Huber Loss (Smooth L1 Loss) - 对异常值更鲁棒
+        # Huber Loss
         self.loss_fn = torch.nn.SmoothL1Loss()
 
     def learn(self, list_sample_data):
-
         t_data = list_sample_data
         batch = len(t_data)
 
-        # [b, d]
         batch_feature_vec = [frame.obs[: self.obs_split[0]] for frame in t_data]
         batch_feature_map = [frame.obs[self.obs_split[0] :] for frame in t_data]
         batch_action = torch.LongTensor(np.array([int(frame.act) for frame in t_data])).view(-1, 1).to(self.device)
@@ -88,6 +77,10 @@ class Algorithm:
         )
 
         rew = torch.tensor(np.array([frame.rew for frame in t_data]), device=self.device)
+        
+        # 奖励裁剪: 避免极端奖励导致Q值不稳定
+        rew = rew.clamp(-10.0, 10.0)
+        
         _batch_feature_vec = [frame._obs[: self.obs_split[0]] for frame in t_data]
         _batch_feature_map = [frame._obs[self.obs_split[0] :] for frame in t_data]
         not_done = torch.tensor(
@@ -104,19 +97,13 @@ class Algorithm:
             self.__convert_to_tensor(_batch_feature_map).view(batch, *self.obs_split[1]),
         ]
 
-        # =============================================
-        # Double DQN: 用online网络选动作，用target网络评估Q值
-        # 这样可以有效缓解Q值过高估计的问题
-        # =============================================
-        
-        # 1. 使用online网络选择下一状态的最优动作
+        # Double DQN
         self.model.eval()
         with torch.no_grad():
             q_online, _ = self.model(_batch_feature, state=None)
             q_online = q_online.masked_fill(~_batch_obs_legal, float('-inf'))
             next_actions = q_online.argmax(dim=1, keepdim=True)
         
-        # 2. 使用target网络评估所选动作的Q值
         self.target_model.eval()
         with torch.no_grad():
             q_target, _ = self.target_model(_batch_feature, state=None)
@@ -124,36 +111,29 @@ class Algorithm:
 
         target_q = rew + self._gamma * q_max * not_done
 
-        # 3. 前向传播计算当前Q值
         self.optim.zero_grad()
         self.model.train()
         logits, _ = self.model(batch_feature, state=None)
         current_q = logits.gather(1, batch_action).squeeze(1)
 
-        # 使用Huber Loss替代MSE，对异常值更鲁棒
         loss = self.loss_fn(current_q, target_q)
         loss.backward()
         
-        # 梯度裁剪 - 防止梯度爆炸
+        # 梯度裁剪
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
         
         self.optim.step()
-        
-        # 学习率调度
-        self.scheduler.step()
 
         self.train_step += 1
 
-        # 软更新target网络 (Polyak averaging)
+        # 每步都做软更新，但tau较小 → 平滑跟进
         if self.train_step % self.target_update_freq == 0:
-            self.soft_update_target(tau=0.005)
+            self.soft_update_target(tau=0.01)
 
         value_loss = loss.detach().item()
         q_value = target_q.mean().detach().item()
         reward = rew.mean().detach().item()
 
-        # Periodically report monitoring
-        # 按照间隔上报监控
         now = time.time()
         if now - self.last_report_monitor_time >= 60:
             monitor_data = {
@@ -163,7 +143,6 @@ class Algorithm:
             }
             if self.monitor:
                 self.monitor.put_data({os.getpid(): monitor_data})
-
             self.last_report_monitor_time = now
 
     def __convert_to_tensor(self, data):
@@ -200,10 +179,7 @@ class Algorithm:
         model = self.model
         model.eval()
         
-        # =============================================
-        # 改进的epsilon-greedy策略
-        # 使用指数衰减，更快收敛到利用模式
-        # =============================================
+        # epsilon衰减
         if not exploit_flag:
             self.epsilon = max(
                 self.epsilon_min, 
@@ -211,7 +187,6 @@ class Algorithm:
             )
 
         with torch.no_grad():
-            # epsilon greedy
             if not exploit_flag and np.random.rand(1) < self.epsilon:
                 random_action = np.random.rand(batch, self.act_shape)
                 random_action = torch.tensor(random_action, dtype=torch.float32).to(self.device)
@@ -230,12 +205,8 @@ class Algorithm:
         self.predict_count += 1
         return [ActData(move_dir=i[0], use_talent=i[1]) for i in format_action]
 
-    def soft_update_target(self, tau=0.005):
-        """
-        软更新target网络 (Polyak averaging)
-        θ_target = τ * θ_online + (1 - τ) * θ_target
-        比硬拷贝更平滑，训练更稳定
-        """
+    def soft_update_target(self, tau=0.01):
+        """软更新target网络，tau=0.01比0.005更快跟进"""
         for target_param, online_param in zip(
             self.target_model.parameters(), self.model.parameters()
         ):

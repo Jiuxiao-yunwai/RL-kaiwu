@@ -5,7 +5,7 @@
 ###########################################################################
 """
 Author: Tencent AI Arena Authors
-Optimized: Dueling DQN 网络架构，增强特征提取能力
+Optimized: 精简Dueling DQN - 去掉残差连接，减少参数量，加速收敛
 """
 
 
@@ -17,76 +17,63 @@ import torch.nn.functional as F
 
 class Model(nn.Module):
     """
-    Dueling DQN 架构:
-    - 共享CNN层提取地图特征
-    - 共享FC层融合向量+地图特征
-    - 分支为 V(s) 状态价值流 和 A(s,a) 优势流
-    - Q(s,a) = V(s) + A(s,a) - mean(A)
+    精简版 Dueling DQN:
+    - 保留Dueling分支(核心收益)
+    - 去掉残差连接(减少参数量/计算量)
+    - 减小FC宽度(更快收敛)
+    - 保留LayerNorm(训练稳定性)
     
-    相比普通DQN，Dueling能更好地评估状态价值，
-    加速有效动作的学习，减少对稀疏奖励环境的样本需求。
+    目标: 在13000轮训练预算内快速收敛
     """
     def __init__(self, state_shape, action_shape=0, softmax=False):
         super().__init__()
         
-        # ========================================
-        # CNN特征提取器 - 增加通道数和残差连接
-        # ========================================
-        self.cnn_layer1 = nn.Sequential(
-            nn.Conv2d(4, 32, kernel_size=3, stride=1, padding=1),
+        # CNN: 保持原始padding=2以维持和原代码一致的输出维度
+        # 但减少通道数以加速计算
+        cnn_layer1 = [
+            nn.Conv2d(4, 16, kernel_size=3, stride=1, padding=2),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+        ]
+        cnn_layer2 = [
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=2),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
-        )
-        self.cnn_layer2 = nn.Sequential(
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+        ]
+        cnn_layer3 = [
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=2),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-        )
-        self.cnn_layer3 = nn.Sequential(
-            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-        )
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        
-        # 残差连接的降采样适配层
-        self.res_adapt = nn.Sequential(
-            nn.Conv2d(32, 64, kernel_size=1, stride=1),
-            nn.BatchNorm2d(64),
-        )
-        
-        # ========================================
-        # 共享特征层
-        # ========================================
-        # CNN输出维度计算: 51x51 -> pool -> 25x25 -> pool -> 12x12 -> pool -> 6x6
-        # 64 * 6 * 6 = 2304 (这里需要根据实际计算)
+        ]
+        max_pool = [nn.MaxPool2d(kernel_size=(2, 2))]
+        self.cnn_layer = cnn_layer1 + max_pool + cnn_layer2 + max_pool + cnn_layer3 + max_pool
+        self.cnn_model = nn.Sequential(*self.cnn_layer)
+
+        # 共享特征层: 更紧凑
         self.shared_fc = nn.Sequential(
-            nn.Linear(np.prod(state_shape), 512),
-            nn.LayerNorm(512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.1),
-            nn.Linear(512, 256),
+            nn.Linear(np.prod(state_shape), 256),
             nn.LayerNorm(256),
             nn.ReLU(inplace=True),
+            nn.Linear(256, 128),
+            nn.LayerNorm(128),
+            nn.ReLU(inplace=True),
         )
         
-        # ========================================
-        # Dueling架构: 价值流 + 优势流
-        # ========================================
+        # Dueling分支
         self.action_dim = np.prod(action_shape) if action_shape else 0
         
-        # 状态价值流 V(s)
+        # V(s) - 状态价值
         self.value_stream = nn.Sequential(
-            nn.Linear(256, 128),
+            nn.Linear(128, 64),
             nn.ReLU(inplace=True),
-            nn.Linear(128, 1),
+            nn.Linear(64, 1),
         )
         
-        # 优势流 A(s,a)
+        # A(s,a) - 优势函数
         self.advantage_stream = nn.Sequential(
-            nn.Linear(256, 128),
+            nn.Linear(128, 64),
             nn.ReLU(inplace=True),
-            nn.Linear(128, self.action_dim),
+            nn.Linear(64, self.action_dim),
         )
         
         self.softmax_layer = nn.Softmax(dim=-1) if softmax else None
@@ -103,39 +90,18 @@ class Model(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    # Forward inference
-    # 前向推理
     def forward(self, s, state=None, info=None):
         feature_vec, feature_maps = s[0], s[1]
+        feature_maps = self.cnn_model(feature_maps)
+        feature_maps = feature_maps.view(feature_maps.shape[0], -1)
         
-        # CNN前向 with 残差连接
-        x1 = self.cnn_layer1(feature_maps)
-        x1_pooled = self.pool(x1)
+        concat_feature = torch.cat([feature_vec, feature_maps], dim=1)
         
-        x2 = self.cnn_layer2(x1_pooled)
-        x2_pooled = self.pool(x2)
-        
-        # 残差连接: 将layer1的输出经过适配后和layer3输入相加
-        x2_res = self.res_adapt(x1_pooled)
-        # 需要对x2_res进行池化以匹配x2_pooled的尺寸
-        x2_res_pooled = self.pool(x2_res)
-        
-        x3 = self.cnn_layer3(x2_pooled + x2_res_pooled)
-        x3_pooled = self.pool(x3)
-        
-        feature_maps_flat = x3_pooled.view(x3_pooled.shape[0], -1)
-        
-        # 拼接向量特征和CNN特征
-        concat_feature = torch.cat([feature_vec, feature_maps_flat], dim=1)
-        
-        # 共享层
         shared = self.shared_fc(concat_feature)
         
         # Dueling: Q = V + (A - mean(A))
         value = self.value_stream(shared)
         advantage = self.advantage_stream(shared)
-        
-        # Q(s,a) = V(s) + A(s,a) - mean(A(s,a))
         q_values = value + advantage - advantage.mean(dim=1, keepdim=True)
         
         if self.softmax_layer:

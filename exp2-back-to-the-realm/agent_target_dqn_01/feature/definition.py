@@ -145,9 +145,9 @@ def reward_shaping(
     # ========================================
     reward_treasure = 0.0
     if treasure_collected_count > prev_treasure_collected_count:
-        # 递进式宝箱奖励: 每收集一个宝箱，奖励随进度递增
-        # 第1个=3.0, 第5个=5.0, 第10个=7.5, 第13个=9.5
-        reward_treasure = 3.0 + 0.5 * treasure_collected_count
+        # 递进式宝箱奖励: 第1个=2.3, 第7个=4.1, 第13个=5.9
+        # 量级控制在clamp(-10,10)有效范围内
+        reward_treasure = 2.0 + 0.3 * treasure_collected_count
 
     # ========================================
     # 奖励2: 向最近宝箱靠近的奖励 (引导性奖励)
@@ -163,9 +163,9 @@ def reward_shaping(
                 # 距离变化的归一化奖励
                 dist_delta = prev_dist - min_dist
                 if dist_delta > 0:
-                    reward_treasure_dist = 1.5  # 靠近宝箱
+                    reward_treasure_dist = 1.0  # 靠近宝箱
                 else:
-                    reward_treasure_dist = -0.8  # 远离宝箱
+                    reward_treasure_dist = -0.5  # 远离宝箱
             elif prev_dist <= 0 and min_dist > 0:
                 # 新发现宝箱
                 reward_treasure_dist = 0.5
@@ -180,9 +180,9 @@ def reward_shaping(
         # 全部宝箱已收集 → 强引导奔向终点
         if prev_end_dist > 0:
             if end_dist < prev_end_dist:
-                reward_end_dist = 3.0   # 强靠近终点奖励
+                reward_end_dist = 2.0   # 强靠近终点奖励
             else:
-                reward_end_dist = -2.0  # 强远离终点惩罚
+                reward_end_dist = -1.5  # 强远离终点惩罚
     else:
         # 宝箱未全部收集时，也给予微弱的终点方向感知
         if prev_end_dist > 0 and treasure_collected_count > 0:
@@ -194,14 +194,11 @@ def reward_shaping(
     # 到达终点的超级奖励
     if terminated:
         if treasure_collected_count >= treasure_count:
-            # 全收集通关 - 超级大奖!
-            reward_win = 50.0
+            reward_win = 10.0   # 全收集通关
         elif treasure_collected_count >= 10:
-            # 大部分收集
-            reward_win = 20.0 + treasure_collected_count * 1.0
+            reward_win = 5.0 + treasure_collected_count * 0.3
         else:
-            # 少量收集或无收集
-            reward_win = 5.0 + treasure_collected_count * 0.5
+            reward_win = 2.0 + treasure_collected_count * 0.2
 
     # ========================================
     # 奖励4: buff加速增益奖励
@@ -282,8 +279,7 @@ def reward_shaping(
     # ========================================
     reward_timeout = 0.0
     if truncated:
-        # 超时 = 失败，重惩罚
-        reward_timeout = -20.0
+        reward_timeout = -10.0
 
     # ========================================
     # 汇总所有奖励
