@@ -181,6 +181,12 @@ def reward_shaping(
     # - treasure_phase=False：切到收官阶段，主推终点。
     treasure_phase = bool(is_treasures_remain)
 
+    time_pressure = min(est_step / max(max_step_cfg, 1.0), 1.0)
+    if time_pressure > 0.6:
+        phase_fade = min((time_pressure - 0.6) / 0.3, 1.0)
+    else:
+        phase_fade = 0.0
+
     """
     Reward 1. Reward related to the end point
     奖励1. 与终点相关的奖励
@@ -285,10 +291,7 @@ def reward_shaping(
     # 目标屏蔽：
     # 当智能体正在有效靠近宝箱时，临时屏蔽“远离终点”的负塑形，避免目标冲突。
     if treasure_phase and reward_treasure_dist > 0:
-        # While effectively approaching treasure, suppress end-distance shaping
-        # to prevent objective conflict.
-        # 在寻宝阶段且正在有效靠近宝箱时，屏蔽终点距离塑形，避免目标冲突。
-        reward_end_dist = 0
+        reward_end_dist *= 0.1
 
     if treasure_phase and reward_end_dist > 0:
         # In treasure phase, weaken positive pull-to-end to avoid premature finish.
@@ -382,7 +385,7 @@ def reward_shaping(
     Reward 5. Rewards for quick clearance
     奖励5. 关于快速通关的奖励
     """
-    reward_step = 1
+    reward_step = 1.0 + 2.0 * time_pressure ** 2
     # Reward 5.1 Penalty for not getting close to the end point after collecting all the treasure chests
     # (TODO: Give penalty after collecting all the treasure chests, encourage full collection)
     # 奖励5.1 收集完所有宝箱却未靠近终点的惩罚
@@ -470,8 +473,8 @@ def reward_shaping(
         "reward_timeout": -4.5,
         # Buff/flicker are auxiliary behaviors; keep small to avoid objective drift.
         # buff/闪现是辅助行为，权重保持较小，避免目标漂移。
-        "reward_buff_dist": 0.05,
-        "reward_buff": 0.1,
+        "reward_buff_dist": 0.15,
+        "reward_buff": 0.5,
         "reward_treasure_dists": 0.5,
         "reward_treasure": 1.2,
         "reward_all_treasure": 1.5,
@@ -496,12 +499,24 @@ def reward_shaping(
     # 寻宝阶段：强化寻宝，抑制提前收官；
     # 收官阶段：在收齐后强化到终点。
     if treasure_phase:
-        reward_weight["reward_end_dist"] = 0.15
-        reward_weight["reward_win"] = 0.8
-        reward_weight["reward_treasure_dists"] = 1.4
-        reward_weight["reward_treasure"] = 2.2
-        reward_weight["reward_all_treasure"] = 3.2
-        reward_weight["reward_missing_treasure_on_finish"] = -3.0
+        t_end_dist = 0.15
+        t_win = 0.8
+        t_treasure_dists = 1.4
+        t_treasure = 2.2
+        t_all_treasure = 3.2
+        t_missing = -3.0
+        f_end_dist = 1.2
+        f_win = 4.5
+        f_treasure_dists = 0.2
+        f_treasure = 0.5
+        f_all_treasure = 0.5
+        f_missing = -0.2
+        reward_weight["reward_end_dist"] = t_end_dist + (f_end_dist - t_end_dist) * phase_fade
+        reward_weight["reward_win"] = t_win + (f_win - t_win) * phase_fade
+        reward_weight["reward_treasure_dists"] = t_treasure_dists + (f_treasure_dists - t_treasure_dists) * phase_fade
+        reward_weight["reward_treasure"] = t_treasure + (f_treasure - t_treasure) * phase_fade
+        reward_weight["reward_all_treasure"] = t_all_treasure + (f_all_treasure - t_all_treasure) * phase_fade
+        reward_weight["reward_missing_treasure_on_finish"] = t_missing + (f_missing - t_missing) * phase_fade
     else:
         reward_weight["reward_end_dist"] = 1.2
         reward_weight["reward_win"] = 4.5
