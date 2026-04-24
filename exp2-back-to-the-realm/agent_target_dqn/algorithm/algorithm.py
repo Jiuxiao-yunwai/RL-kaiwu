@@ -12,6 +12,7 @@ import time
 import os
 import numpy as np
 import torch
+import torch.nn.functional as F
 from copy import deepcopy
 from agent_target_dqn.model.model import Model
 from agent_target_dqn.conf.conf import Config
@@ -24,11 +25,17 @@ class Algorithm:
         self.direction_space = Config.DIM_OF_ACTION_DIRECTION
         self.talent_direction = Config.DIM_OF_TALENT
         self.obs_shape = Config.DIM_OF_OBSERVATION
-        self.epsilon = Config.EPSILON
-        self.egp = Config.EPSILON_GREEDY_PROBABILITY
+        self.epsilon_start = Config.EPSILON_START
+        self.epsilon_end = Config.EPSILON_END
+        self.epsilon_decay_steps = Config.EPSILON_DECAY_STEPS
+        self.epsilon_warmup_steps = Config.EPSILON_WARMUP_STEPS
+        self.epsilon = self.epsilon_start
         self.target_update_freq = Config.TARGET_UPDATE_FREQ
+        self.target_soft_tau = Config.TARGET_SOFT_TAU
         self.obs_split = Config.DESC_OBS_SPLIT
-        self._gamma = Config.GAMMA
+        self.gamma = Config.GAMMA
+        self.n_step = Config.N_STEP
+        self.grad_clip_norm = Config.GRAD_CLIP_NORM
         self.lr = Config.START_LR
         self.device = device
         self.model = Model(
@@ -45,11 +52,10 @@ class Algorithm:
         self.monitor = monitor
 
     def learn(self, list_sample_data):
-
         t_data = list_sample_data
         batch = len(t_data)
+        mask_value = torch.finfo(torch.float32).min
 
-        # [b, d]
         batch_feature_vec = [frame.obs[: self.obs_split[0]] for frame in t_data]
         batch_feature_map = [frame.obs[self.obs_split[0] :] for frame in t_data]
         batch_action = torch.LongTensor(np.array([int(frame.act) for frame in t_data])).view(-1, 1).to(self.device)
@@ -67,11 +73,14 @@ class Algorithm:
             .to(self.device)
         )
 
-        rew = torch.tensor(np.array([frame.rew for frame in t_data]), device=self.device)
+        rew = torch.tensor(np.array([frame.rew for frame in t_data]), dtype=torch.float32, device=self.device)
+        rew = rew.clamp(-20.0, 20.0)
+
         _batch_feature_vec = [frame._obs[: self.obs_split[0]] for frame in t_data]
         _batch_feature_map = [frame._obs[self.obs_split[0] :] for frame in t_data]
-        not_done = torch.tensor(
-            np.array([0 if frame.done == 1 else 1 for frame in t_data]),
+        done_flag = torch.tensor(
+            np.array([1 if frame.done == 1 else 0 for frame in t_data]),
+            dtype=torch.float32,
             device=self.device,
         )
 
@@ -84,29 +93,55 @@ class Algorithm:
             self.__convert_to_tensor(_batch_feature_map).view(batch, *self.obs_split[1]),
         ]
 
-        model = getattr(self, "target_model")
-        model.eval()
+        self.model.eval()
+        self.target_model.eval()
         with torch.no_grad():
-            q, h = model(_batch_feature, state=None)
-            q = q.masked_fill(~_batch_obs_legal, float(torch.min(q)))
-            q_max = q.max(dim=1).values.detach()
+            q_online, _ = self.model(_batch_feature, state=None)
+            q_online = q_online.masked_fill(~_batch_obs_legal, mask_value)
+            next_action = q_online.argmax(dim=1, keepdim=True)
 
-        target_q = rew + self._gamma * q_max * not_done
+            q_target, _ = self.target_model(_batch_feature, state=None)
+            q_target = q_target.masked_fill(~_batch_obs_legal, mask_value)
+            next_q = q_target.gather(1, next_action).view(-1)
+
+        target_q = torch.zeros_like(rew)
+        for i in range(batch):
+            discount = 1.0
+            returns_i = 0.0
+            terminal_reached = False
+            last_index = i
+
+            for step in range(self.n_step):
+                idx = i + step
+                if idx >= batch:
+                    break
+                returns_i += discount * rew[idx].item()
+                last_index = idx
+                if done_flag[idx].item() > 0.5:
+                    terminal_reached = True
+                    break
+                discount *= self.gamma
+
+            if not terminal_reached:
+                returns_i += discount * next_q[last_index].item()
+            target_q[i] = returns_i
 
         self.optim.zero_grad()
+        self.model.train()
+        logits, _ = self.model(batch_feature, state=None)
+        pred_q = logits.gather(1, batch_action).view(-1)
 
-        model = getattr(self, "model")
-        model.train()
-        logits, h = model(batch_feature, state=None)
-
-        loss = torch.square(target_q - logits.gather(1, batch_action).view(-1)).mean()
+        td_abs = (target_q - pred_q).detach().abs()
+        td_weight = 0.4 + 0.6 * (td_abs / (td_abs.mean() + 1e-6))
+        element_loss = F.smooth_l1_loss(pred_q, target_q, reduction="none")
+        loss = (td_weight * element_loss).mean()
         loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
         self.optim.step()
 
         self.train_step += 1
 
-        # Update the target network
-        # 更新target网络
+        self.soft_update_target_q()
         if self.train_step % self.target_update_freq == 0:
             self.update_target_q()
 
@@ -114,14 +149,13 @@ class Algorithm:
         q_value = target_q.mean().detach().item()
         reward = rew.mean().detach().item()
 
-        # Periodically report monitoring
-        # 按照间隔上报监控
         now = time.time()
         if now - self.last_report_monitor_time >= 60:
             monitor_data = {
                 "value_loss": value_loss,
                 "q_value": q_value,
                 "reward": reward,
+                "grad_norm": float(grad_norm),
             }
             if self.monitor:
                 self.monitor.put_data({os.getpid(): monitor_data})
@@ -130,17 +164,16 @@ class Algorithm:
 
     def __convert_to_tensor(self, data):
         if isinstance(data, list):
-            data = [np.array(item, dtype=np.float32) for item in data]
+            data = np.stack([np.asarray(item, dtype=np.float32) for item in data], axis=0)
         elif isinstance(data, np.ndarray):
-            if data.dtype == np.object:
+            if data.dtype == np.object_:
                 data = data.astype(np.float32)
             else:
-                data = data.astype(np.float32)
+                data = data.astype(np.float32, copy=False)
         else:
             raise TypeError(f"Unsupported data type: {type(data)}")
 
-        tensor = torch.stack([torch.tensor(item) for item in data]).to(self.device)
-        return tensor
+        return torch.from_numpy(data).to(self.device)
 
     def predict_detail(self, list_obs_data, exploit_flag=False):
         batch = len(list_obs_data)
@@ -159,16 +192,18 @@ class Algorithm:
             .bool()
             .to(self.device)
         )
-        model = self.model
-        model.eval()
-        # Exploration factor,
-        # we want epsilon to decrease as the number of prediction steps increases, until it reaches 0.1
-        # 探索因子, 我们希望epsilon随着预测步数越来越小，直到0.1为止
-        self.epsilon = max(0.1, self.epsilon - self.predict_count / self.egp)
+        mask_value = torch.finfo(torch.float32).min
+        self.model.eval()
+
+        if self.predict_count < self.epsilon_warmup_steps:
+            self.epsilon = self.epsilon_start
+        else:
+            decay_steps = max(float(self.epsilon_decay_steps - self.epsilon_warmup_steps), 1.0)
+            decay_ratio = min(float(self.predict_count - self.epsilon_warmup_steps) / decay_steps, 1.0)
+            self.epsilon = self.epsilon_start - (self.epsilon_start - self.epsilon_end) * decay_ratio
 
         with torch.no_grad():
-            # epsilon greedy
-            if not exploit_flag and np.random.rand(1) < self.epsilon:
+            if not exploit_flag and np.random.rand() < self.epsilon:
                 random_action = np.random.rand(batch, self.act_shape)
                 random_action = torch.tensor(random_action, dtype=torch.float32).to(self.device)
                 random_action = random_action.masked_fill(~legal_act, 0)
@@ -178,13 +213,20 @@ class Algorithm:
                     self.__convert_to_tensor(feature_vec),
                     self.__convert_to_tensor(feature_map).view(batch, *self.obs_split[1]),
                 ]
-                logits, _ = model(feature, state=None)
-                logits = logits.masked_fill(~legal_act, float(torch.min(logits)))
+                logits, _ = self.model(feature, state=None)
+                logits = logits.masked_fill(~legal_act, mask_value)
                 act = logits.argmax(dim=1).cpu().view(-1, 1).tolist()
 
         format_action = [[instance[0] % self.direction_space, instance[0] // self.direction_space] for instance in act]
         self.predict_count += 1
         return [ActData(move_dir=i[0], use_talent=i[1]) for i in format_action]
+
+    def soft_update_target_q(self):
+        with torch.no_grad():
+            for target_param, online_param in zip(self.target_model.parameters(), self.model.parameters()):
+                target_param.data.copy_(
+                    self.target_soft_tau * online_param.data + (1.0 - self.target_soft_tau) * target_param.data
+                )
 
     def update_target_q(self):
         self.target_model.load_state_dict(self.model.state_dict())
