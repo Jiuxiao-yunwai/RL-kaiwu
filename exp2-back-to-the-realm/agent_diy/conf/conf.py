@@ -23,7 +23,8 @@ class Config:
 
     # Size of observation. After users design their own features, they should set the correct dimensions
     # observation的维度，用户设计了自己的特征之后应该设置正确的维度
-    DIM_OF_OBSERVATION = 0
+    VIEW_SIZE = 25
+    DIM_OF_OBSERVATION = 4096 + 404
 
     # Dimension of movement action direction
     # 移动动作方向的维度
@@ -33,10 +34,27 @@ class Config:
     # 闪现动作方向的维度
     DIM_OF_TALENT = 8
 
+    # Feature split:
+    # vector part: 404, map part: 4 * 51 * 51
+    DESC_OBS_SPLIT = [404, (4, VIEW_SIZE * 2 + 1, VIEW_SIZE * 2 + 1)]
+
+    # Dueling Double DQN hyper-parameters
+    TARGET_UPDATE_FREQ = 800
+    TARGET_SOFT_TAU = 0.003
+    EPSILON_START = 1.0
+    EPSILON_END = 0.02
+    EPSILON_DECAY_STEPS = 180000
+    EPSILON_WARMUP_STEPS = 15000
+    EPSILON = EPSILON_START
+    GAMMA = 0.995
+    N_STEP = 3
+    GRAD_CLIP_NORM = 1.0
+    START_LR = 6e-5
+
     # Configuration about kaiwu usage. The following configurations can be ignored
     # 关于开悟平台使用的配置，是可以忽略的配置，不需要改动
     SUB_ACTION_MASK_SHAPE = 0
     LSTM_HIDDEN_SHAPE = 0
     LSTM_CELL_SHAPE = 0
-    OBSERVATION_SHAPE = 45000
+    OBSERVATION_SHAPE = 4500
     LEGAL_ACTION_SHAPE = 2
