@@ -114,9 +114,31 @@ def reward_shaping(
                 return organ.status
         return 0
 
+    def _delta_in_grid_units(prev_dist, curr_dist):
+        """
+        Convert distance delta into comparable grid units.
+        将距离差统一换算为可比较的“网格单位”。
+
+        - If data appears normalized (typically <= 2), convert by *256.
+        - If data already looks like raw grid steps, use as-is.
+        - Return None when either side is invalid (<0).
+        - 若数据看起来是归一化（通常<=2），按 *256 还原网格单位；
+        - 若本身像原始网格步数，则直接使用；
+        - 任一侧无效（<0）时返回 None。
+        """
+        if prev_dist < 0 or curr_dist < 0:
+            return None
+
+        delta = prev_dist - curr_dist
+        if max(prev_dist, curr_dist) <= 2.0:
+            return delta * 256.0
+        return delta
+
     # Get the grid-based distance of the current agent's position relative to the end point, buff, and treasure chest
     # 获取当前智能体的位置相对于终点, buff, 宝箱的栅格化距离
-    end_dist = _remain_info.get("end_pos").l2_distance
+    # Use continuous path-aware distance for reward shaping.
+    # 使用连续且路径相关的 grid_distance 进行奖励塑形。
+    end_dist = _remain_info.get("end_pos").grid_distance
     treasure_dists = [pos.grid_distance if pos.grid_distance > 0 else -1 for pos in _remain_info.get("treasure_pos")]
     treasure_count = _remain_info.get("treasure_count")
     treasure_collected_count = _remain_info.get("treasure_collected_count")
@@ -138,7 +160,7 @@ def reward_shaping(
     # Get the grid-based distance of the agent's position from the previous
     # frame relative to the end point, buff, and treasure chest
     # 获取智能体上一帧相对于终点，buff, 宝箱的栅格化距离
-    prev_end_dist = remain_info.get("end_pos").l2_distance
+    prev_end_dist = remain_info.get("end_pos").grid_distance
     prev_treasure_dists = [
         pos.grid_distance if pos.grid_distance > 0 else -1 for pos in remain_info.get("treasure_pos")
     ]
@@ -151,6 +173,13 @@ def reward_shaping(
     # Are there any remaining treasure chests
     # 是否有剩余宝箱
     is_treasures_remain = treasure_collected_count < treasure_count
+    # Stage mode:
+    # - treasure_phase=True: prioritize collecting treasures.
+    # - treasure_phase=False: switch to finish phase and push to end point.
+    # 阶段模式：
+    # - treasure_phase=True：优先收集宝箱；
+    # - treasure_phase=False：切到收官阶段，主推终点。
+    treasure_phase = bool(is_treasures_remain)
 
     """
     Reward 1. Reward related to the end point
@@ -161,7 +190,8 @@ def reward_shaping(
     # 奖励1.1 向终点靠近的奖励
     # Keep this term active for the whole episode to prioritize reaching end first.
     # 该项在全程生效，用于明确“优先到达终点”的训练目标。
-    if prev_end_dist > 0:
+    delta_end_grid = _delta_in_grid_units(prev_end_dist, end_dist)
+    if delta_end_grid is not None:
         # Old implementation (binary):
         # reward_end_dist = 1 if end_dist < prev_end_dist else -1
         # 旧实现（二值）：
@@ -182,12 +212,13 @@ def reward_shaping(
         # - 使用距离变化量作为连续信号；
         # - 增加容忍区间，避免微小抖动被误判为退步；
         # - 限幅保证训练稳定。
-        delta_end = prev_end_dist - end_dist
-        deadband = 0.25
-        if abs(delta_end) <= deadband:
+        # Deadband is interpreted in grid units.
+        # 死区按网格单位解释。
+        deadband_grid = 0.1
+        if abs(delta_end_grid) <= deadband_grid:
             reward_end_dist = 0
         else:
-            reward_end_dist = max(min(delta_end / 3.0, 1.0), -1.0)
+            reward_end_dist = max(min(delta_end_grid / 2.0, 1.0), -1.0)
 
     # Reward 1.2 Reward for winning
     # 奖励1.2 获胜的奖励
@@ -199,7 +230,16 @@ def reward_shaping(
         # 对齐官方得分意图：
         # score = 终点(150) + 宝箱(100*收集数) + 步数奖励(0.2*(max_step-used_step))。
         # 这里用归一化形式，避免RL训练中数值过大不稳定。
-        reward_win = 1.5 + 1.0 * collection_ratio + 0.5 * step_efficiency
+        # Stage-aware terminal reward:
+        # - If treasures are not fully collected, reaching end early should not be strongly rewarded.
+        # - If all treasures are collected, give strong finish reward with efficiency bonus.
+        # 分阶段终局奖励：
+        # - 未收齐宝箱就到终点，不应给高奖励；
+        # - 收齐后到终点，给较强收官奖励并叠加效率收益。
+        if treasure_phase:
+            reward_win = 0.2
+        else:
+            reward_win = 1.5 + 1.0 * collection_ratio + 0.5 * step_efficiency
 
     # Reward 1.3 Timeout penalty
     # 奖励1.3 超时惩罚
@@ -227,16 +267,33 @@ def reward_shaping(
             if prev_visible_dists:
                 curr_min_dist = min(visible_dists)
                 prev_min_dist = min(prev_visible_dists)
-                delta_treasure = prev_min_dist - curr_min_dist
-                deadband = 0.25
-                if abs(delta_treasure) <= deadband:
+                delta_treasure_grid = _delta_in_grid_units(prev_min_dist, curr_min_dist)
+                deadband_grid = 0.1
+                if delta_treasure_grid is None:
+                    reward_treasure_dist = 0
+                elif abs(delta_treasure_grid) <= deadband_grid:
                     reward_treasure_dist = 0
                 else:
-                    reward_treasure_dist = max(min(delta_treasure / 3.0, 1.0), -1.0)
+                    reward_treasure_dist = max(min(delta_treasure_grid / 2.0, 1.0), -1.0)
             else:
                 # If treasure just appears in view, give a small positive shaping signal.
                 # 若宝箱刚进入视野，给小幅正向塑形奖励。
                 reward_treasure_dist = 0.3
+
+    # Objective shielding:
+    # If agent is effectively moving toward treasure, temporarily shield negative end-distance shaping.
+    # 目标屏蔽：
+    # 当智能体正在有效靠近宝箱时，临时屏蔽“远离终点”的负塑形，避免目标冲突。
+    if treasure_phase and reward_treasure_dist > 0:
+        # While effectively approaching treasure, suppress end-distance shaping
+        # to prevent objective conflict.
+        # 在寻宝阶段且正在有效靠近宝箱时，屏蔽终点距离塑形，避免目标冲突。
+        reward_end_dist = 0
+
+    if treasure_phase and reward_end_dist > 0:
+        # In treasure phase, weaken positive pull-to-end to avoid premature finish.
+        # 寻宝阶段弱化“拉向终点”的正向塑形，避免过早收官。
+        reward_end_dist *= 0.2
 
     # Reward 2.2 Reward for getting the treasure chest
     # 奖励2.2 获得宝箱的奖励
@@ -335,7 +392,9 @@ def reward_shaping(
     # 已实现：
     # 全宝箱收集后，若没有继续接近终点则给惩罚。
     reward_post_treasure_to_end = 0
-    if (not is_treasures_remain) and prev_end_dist > 0 and end_dist >= prev_end_dist:
+    # We intentionally neutralize the old hard penalty to avoid false positives during wall-following.
+    # 这里有意中和旧的硬惩罚，避免贴墙绕障时被误判为退步。
+    if (not is_treasures_remain) and (delta_end_grid is not None) and (delta_end_grid < -1.5):
         reward_post_treasure_to_end = 1
 
     # Reward 5.1.1 Terminal treasure consistency
@@ -421,12 +480,35 @@ def reward_shaping(
         "reward_bump": -1.0,
         "reward_memory": -0.01,
         "reward_exploration": 0.05,
-        "reward_post_treasure_to_end": -0.2,
+        # Keep this weight at 0 to remove brittle wall-following false positives.
+        # 将该权重置0，移除易误判的贴墙绕障惩罚。
+        "reward_post_treasure_to_end": 0.0,
         "reward_perfect_clear": 2.5,
         "reward_missing_treasure_on_finish": -0.3,
         "reward_stall": -0.2,
         "reward_revisit": -0.03,
     }
+
+    # Phase-based objective scheduling:
+    # Treasure phase: strongly encourage treasure collection and discourage early finish.
+    # Finish phase: strongly encourage reaching end after treasures are collected.
+    # 分阶段目标调度：
+    # 寻宝阶段：强化寻宝，抑制提前收官；
+    # 收官阶段：在收齐后强化到终点。
+    if treasure_phase:
+        reward_weight["reward_end_dist"] = 0.15
+        reward_weight["reward_win"] = 0.8
+        reward_weight["reward_treasure_dists"] = 1.4
+        reward_weight["reward_treasure"] = 2.2
+        reward_weight["reward_all_treasure"] = 3.2
+        reward_weight["reward_missing_treasure_on_finish"] = -3.0
+    else:
+        reward_weight["reward_end_dist"] = 1.2
+        reward_weight["reward_win"] = 4.5
+        reward_weight["reward_treasure_dists"] = 0.2
+        reward_weight["reward_treasure"] = 0.5
+        reward_weight["reward_all_treasure"] = 0.5
+        reward_weight["reward_missing_treasure_on_finish"] = -0.2
 
     reward = [
         reward_end_dist * reward_weight["reward_end_dist"],

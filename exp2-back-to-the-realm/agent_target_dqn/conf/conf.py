@@ -50,16 +50,23 @@ class Config:
     # target网络的更新频率
     TARGET_UPDATE_FREQ = 500
 
-    # Exploration factor, see the calculation of epsilon in the function in the above comment
-    # 探索因子, epsilon的计算见上面注释中的函数
-    EPSILON_GREEDY_PROBABILITY = 300000
+    # Exploration scheduling (linear decay)
+    # 探索率调度（线性衰减）
+    EPSILON_START = 1.0
+    EPSILON_END = 0.1
+    EPSILON_DECAY_STEPS = 300000
+
+    # Keep EPSILON for backward compatibility with existing code paths.
+    # 保留 EPSILON 以兼容旧代码路径。
+    EPSILON = EPSILON_START
 
     # Discount factor GAMMA in RL
     # RL中的回报折扣GAMMA
     GAMMA = 0.9
 
-    # epsilon
-    EPSILON = 0.1
+    # Gradient clipping threshold
+    # 梯度裁剪阈值
+    GRAD_CLIP_NORM = 1.0
 
     # Initial learning rate
     # 初始的学习率
