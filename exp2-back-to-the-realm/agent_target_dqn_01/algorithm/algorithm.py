@@ -25,9 +25,10 @@ class Algorithm:
         self.direction_space = Config.DIM_OF_ACTION_DIRECTION
         self.talent_direction = Config.DIM_OF_TALENT
         self.obs_shape = Config.DIM_OF_OBSERVATION
-        self.epsilon = Config.EPSILON
-        self.epsilon_min = Config.EPSILON_MIN
-        self.epsilon_decay = Config.EPSILON_DECAY
+        self.epsilon_start = Config.EPSILON_START
+        self.epsilon_end = Config.EPSILON_END
+        self.epsilon_decay_steps = Config.EPSILON_DECAY_STEPS
+        self.epsilon = self.epsilon_start
         self.target_update_freq = Config.TARGET_UPDATE_FREQ
         self.obs_split = Config.DESC_OBS_SPLIT
         self._gamma = Config.GAMMA
@@ -192,15 +193,13 @@ class Algorithm:
         model = self.model
         model.eval()
         
-        # =============================================
-        # 改进的epsilon-greedy策略
-        # 使用指数衰减，更快收敛到利用模式
-        # =============================================
+        # Exploration factor (linear decay):
+        # epsilon moves from EPSILON_START to EPSILON_END over EPSILON_DECAY_STEPS.
+        # 探索率线性衰减：
+        # epsilon在EPSILON_DECAY_STEPS内从 EPSILON_START 衰减到 EPSILON_END。
         if not exploit_flag:
-            self.epsilon = max(
-                self.epsilon_min, 
-                self.epsilon * self.epsilon_decay
-            )
+            decay_ratio = min(float(self.predict_count) / max(float(self.epsilon_decay_steps), 1.0), 1.0)
+            self.epsilon = self.epsilon_start - (self.epsilon_start - self.epsilon_end) * decay_ratio
 
         with torch.no_grad():
             # epsilon greedy

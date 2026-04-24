@@ -56,17 +56,20 @@ class Config:
     # 但为了效率，每100步做一次
     TARGET_UPDATE_FREQ = 100
 
-    # Epsilon: 从0.5开始(不需要从1.0全随机，浪费前期轮次)
-    # 衰减到0.03，保持少量探索
-    EPSILON = 0.5
-    EPSILON_MIN = 0.03
-    # 每次predict衰减: 0.5 * 0.9998^N
-    # ~3500步到0.25, ~8000步到0.1, ~17000步到0.03
-    # 在13000轮(每轮~600-1000步)下大约第2-3轮就开始利用
-    EPSILON_DECAY = 0.9998
+    # Exploration scheduling (linear decay)
+    # 探索率调度（线性衰减）
+    # 原始值: START=1.0, END=0.1, STEPS=300000 (级约500轮就衰减完毕)
+    # 优化: 拉长到 2,000,000 步 (约前3000轮), 确保充分探索
+    EPSILON_START = 1.0
+    EPSILON_END = 0.05
+    EPSILON_DECAY_STEPS = 2000000
+
+    # Keep EPSILON for backward compatibility with existing code paths.
+    # 保留 EPSILON 以兼容旧代码路径。
+    EPSILON = EPSILON_START
 
     # 保留旧参数以兼容
-    EPSILON_GREEDY_PROBABILITY = 300000
+    EPSILON_GREEDY_PROBABILITY = EPSILON_DECAY_STEPS
 
     # Discount factor GAMMA in RL
     # RL中的回报折扣GAMMA

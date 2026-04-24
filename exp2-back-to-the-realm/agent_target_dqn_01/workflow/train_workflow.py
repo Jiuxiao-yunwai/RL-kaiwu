@@ -5,13 +5,12 @@
 ###########################################################################
 """
 Author: Tencent AI Arena Authors
-Optimized: 课程学习 + 高频训练 + 早停机制，13000轮极限效率
+Optimized: 高频训练，固定宝箱数和步数
 """
 
 
 import time
 import os
-import copy
 from kaiwu_agent.utils.common_func import Frame, attached
 
 from tools.train_env_conf_validate import check_usr_conf, read_usr_conf
@@ -23,40 +22,12 @@ from agent_target_dqn.feature.preprocessor import Preprocessor
 from tools.metrics_utils import get_training_metrics
 
 
-# =============================================
-# 课程学习配置
-# 逐步增加难度，让智能体从简单任务学起
-# =============================================
-CURRICULUM = [
-    # (起始epoch, 宝箱数量, max_step)
-    (0,     5,  600),     # 阶段1: 先学会导航+拾取少量宝箱，短局快速迭代
-    (1500,  8,  1000),     # 阶段2: 中等数量宝箱
-    (4000,  11, 1500),     # 阶段3: 大部分宝箱
-    (7000,  13, 2000),    # 阶段4: 全量宝箱，与评估对齐
-]
-
-
-def get_curriculum_config(epoch, base_conf):
-    """根据当前epoch返回课程学习配置"""
-    treasure_count = CURRICULUM[0][1]
-    max_step = CURRICULUM[0][2]
-    for start_epoch, tc, ms in CURRICULUM:
-        if epoch >= start_epoch:
-            treasure_count = tc
-            max_step = ms
-    
-    conf = copy.deepcopy(base_conf)
-    conf["env_conf"]["treasure_count"] = treasure_count
-    conf["env_conf"]["max_step"] = max_step
-    return conf, treasure_count, max_step
-
-
 @attached
 def workflow(envs, agents, logger=None, monitor=None):
     env, agent = envs[0], agents[0]
     epoch_num = 100000
     episode_num_every_epoch = 1
-    # 关键: 降低截断长度，更频繁地learn → 更快收敛
+    # 降低截断长度，更频繁地learn → 更快收敛
     g_data_truncat = 128
     last_save_model_time = 0
 
@@ -75,31 +46,10 @@ def workflow(envs, agents, logger=None, monitor=None):
         logger.error(f"check_usr_conf return False, please check")
         return
 
-    # 训练统计
-    recent_wins = 0
-    recent_treasures = 0
-    stats_window = 100
-    prev_curriculum_stage = -1
-
     for epoch in range(epoch_num):
-        # 课程学习: 动态调整宝箱数和步数
-        curr_conf, curr_treasure_count, curr_max_step = get_curriculum_config(epoch, usr_conf)
-
-        # 日志课程阶段变化
-        curr_stage = sum(1 for s, _, _ in CURRICULUM if epoch >= s) - 1
-        if curr_stage != prev_curriculum_stage:
-            logger.info(
-                f"=== CURRICULUM STAGE {curr_stage}: "
-                f"Treasures={curr_treasure_count}, MaxStep={curr_max_step}, Epoch={epoch} ==="
-            )
-            prev_curriculum_stage = curr_stage
-
         epoch_total_rew = 0
         data_length = 0
-        for g_data in run_episodes(
-            episode_num_every_epoch, env, agent, g_data_truncat, 
-            curr_conf, logger, monitor, epoch
-        ):
+        for g_data in run_episodes(episode_num_every_epoch, env, agent, g_data_truncat, usr_conf, logger, monitor, epoch):
             data_length += len(g_data)
             total_rew = sum([i.rew for i in g_data])
             epoch_total_rew += total_rew
@@ -117,11 +67,7 @@ def workflow(envs, agents, logger=None, monitor=None):
             agent.save_model()
             last_save_model_time = now
 
-        if epoch % 50 == 0:
-            logger.info(
-                f"Epoch {epoch} | AvgReward: {avg_step_reward} | "
-                f"Steps: {data_length} | Curriculum: {curr_treasure_count}T/{curr_max_step}S"
-            )
+        logger.info(f"Avg Step Reward: {avg_step_reward}, Epoch: {epoch}, Data Length: {data_length}")
 
 
 def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monitor, epoch):
@@ -161,7 +107,6 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
         diy_4 = 0
         diy_5 = 0
         episode_total_reward = 0
-        last_treasure_step = 0  # 上次收集宝箱的step
 
         while not done:
             # Agent performs inference, gets the predicted action for the next frame
@@ -224,10 +169,6 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
                 # Wall bump behavior statistics
                 # 撞墙行为统计
                 bump_cnt += is_bump
-                
-                # 追踪宝箱收集进度
-                if reward_treasure > 0:
-                    last_treasure_step = step
 
             # Determine game over, and update the number of victories
             # 判断游戏结束, 并更新胜利次数

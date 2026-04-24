@@ -24,14 +24,11 @@ class Algorithm:
         self.direction_space = Config.DIM_OF_ACTION_DIRECTION
         self.talent_direction = Config.DIM_OF_TALENT
         self.obs_shape = Config.DIM_OF_OBSERVATION
-        self.epsilon_start = Config.EPSILON_START
-        self.epsilon_end = Config.EPSILON_END
-        self.epsilon_decay_steps = Config.EPSILON_DECAY_STEPS
-        self.epsilon = self.epsilon_start
+        self.epsilon = Config.EPSILON
+        self.egp = Config.EPSILON_GREEDY_PROBABILITY
         self.target_update_freq = Config.TARGET_UPDATE_FREQ
         self.obs_split = Config.DESC_OBS_SPLIT
         self._gamma = Config.GAMMA
-        self.grad_clip_norm = Config.GRAD_CLIP_NORM
         self.lr = Config.START_LR
         self.device = device
         self.model = Model(
@@ -87,24 +84,12 @@ class Algorithm:
             self.__convert_to_tensor(_batch_feature_map).view(batch, *self.obs_split[1]),
         ]
 
-        # Double DQN target:
-        # 1) use online network to select next action;
-        # 2) use target network to evaluate selected action.
-        # Double DQN目标：
-        # 1) 用在线网络选下一步动作；
-        # 2) 用目标网络评估该动作。
-        online_model = getattr(self, "model")
-        target_model = getattr(self, "target_model")
-        online_model.eval()
-        target_model.eval()
+        model = getattr(self, "target_model")
+        model.eval()
         with torch.no_grad():
-            q_online, _ = online_model(_batch_feature, state=None)
-            q_online = q_online.masked_fill(~_batch_obs_legal, float(torch.min(q_online)))
-            next_action = q_online.argmax(dim=1, keepdim=True)
-
-            q_target, _ = target_model(_batch_feature, state=None)
-            q_target = q_target.masked_fill(~_batch_obs_legal, float(torch.min(q_target)))
-            q_max = q_target.gather(1, next_action).view(-1).detach()
+            q, h = model(_batch_feature, state=None)
+            q = q.masked_fill(~_batch_obs_legal, float(torch.min(q)))
+            q_max = q.max(dim=1).values.detach()
 
         target_q = rew + self._gamma * q_max * not_done
 
@@ -116,7 +101,6 @@ class Algorithm:
 
         loss = torch.square(target_q - logits.gather(1, batch_action).view(-1)).mean()
         loss.backward()
-        model_grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip_norm)
         self.optim.step()
 
         self.train_step += 1
@@ -138,7 +122,6 @@ class Algorithm:
                 "value_loss": value_loss,
                 "q_value": q_value,
                 "reward": reward,
-                "diy_1": model_grad_norm,
             }
             if self.monitor:
                 self.monitor.put_data({os.getpid(): monitor_data})
@@ -178,12 +161,10 @@ class Algorithm:
         )
         model = self.model
         model.eval()
-        # Exploration factor (linear decay):
-        # epsilon moves from EPSILON_START to EPSILON_END over EPSILON_DECAY_STEPS.
-        # 探索率线性衰减：
-        # epsilon在EPSILON_DECAY_STEPS内从EPSILON_START衰减到EPSILON_END。
-        decay_ratio = min(float(self.predict_count) / max(float(self.epsilon_decay_steps), 1.0), 1.0)
-        self.epsilon = self.epsilon_start - (self.epsilon_start - self.epsilon_end) * decay_ratio
+        # Exploration factor,
+        # we want epsilon to decrease as the number of prediction steps increases, until it reaches 0.1
+        # 探索因子, 我们希望epsilon随着预测步数越来越小，直到0.1为止
+        self.epsilon = max(0.1, self.epsilon - self.predict_count / self.egp)
 
         with torch.no_grad():
             # epsilon greedy
