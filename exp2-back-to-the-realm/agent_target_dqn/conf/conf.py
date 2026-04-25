@@ -38,57 +38,32 @@ class Config:
     # 闪现动作方向的维度
     DIM_OF_TALENT = 8
 
-    # norm_pos + one_hot_pos + target_pos_features + treasure_pos_features + [buff_availability, talent_availability]
+    # norm_pos + one_hot_pos + end_pos_features + treasure_poss_features + [buff_availability, talent_availability]
     #  + obstacle_map + treasure_map + end_map + location_memory
-    # 2 + 128*2 + 9 + 9*15 + 2 + 4*51*51 = 10808
-    DESC_OBS_SPLIT = [404, (4, VIEW_SIZE * 2 + 1, VIEW_SIZE * 2 + 1)]
+    # 2 + 128*2 + 9  + 9*15 + 2 + 4*51*51 = 10808
+    # # Describe how to perform feature segmentation. The features in the sample code are processed into vectors + feature maps.
+    # The following configuration describes the dimensions of the two.
+    # 描述如何进行特征分割，示例代码中的特征处理成向量+特征图，以下配置描述了两者的维度
+    DESC_OBS_SPLIT = [404, (4, VIEW_SIZE * 2 + 1, VIEW_SIZE * 2 + 1)]  # sum = 10808
 
-    # Update frequency of hard target sync
-    # target网络硬同步频率
-    TARGET_UPDATE_FREQ = 160
+    # Update frequency of target network
+    # target网络的更新频率
+    TARGET_UPDATE_FREQ = 500
 
-    # Soft update ratio for target network
-    # target网络软更新系数
-    TARGET_SOFT_TAU = 0.01
-
-    # Exploration schedule
-    # 探索率调度
-    EPSILON_START = 1.0
-    EPSILON_END = 0.05
-    EPSILON_DECAY_STEPS = 1600000
-    EPSILON_WARMUP_STEPS = 20000
-
-    # Keep compatibility with the original code path
-    # 兼容旧代码路径
-    EPSILON = EPSILON_START
-    EPSILON_GREEDY_PROBABILITY = EPSILON_DECAY_STEPS
+    # Exploration factor, see the calculation of epsilon in the function in the above comment
+    # 探索因子, epsilon的计算见上面注释中的函数
+    EPSILON_GREEDY_PROBABILITY = 300000
 
     # Discount factor GAMMA in RL
     # RL中的回报折扣GAMMA
-    GAMMA = 0.99
+    GAMMA = 0.9
 
-    # N-step target horizon
-    # n-step目标回报长度
-    N_STEP = 6
-
-    # Gradient clipping norm
-    # 梯度裁剪阈值
-    GRAD_CLIP_NORM = 5.0
+    # epsilon
+    EPSILON = 0.1
 
     # Initial learning rate
     # 初始的学习率
-    START_LR = 2e-4
-
-    # Reward clipping range
-    # 奖励裁剪范围
-    REWARD_CLIP = 18.0
-
-    # Anti-stuck action bias
-    # 防卡死动作偏置参数
-    GUIDE_ACTION_BONUS = 0.4
-    BACKTRACK_ACTION_PENALTY = 1.4
-    NO_PROGRESS_ACTION_PENALTY = 0.9
-    STUCK_VISIT_COUNT = 2
+    START_LR = 1e-4
 
     # Configuration about kaiwu usage. The following configurations can be ignored
     # 关于开悟平台使用的配置，是可以忽略的配置，不需要改动

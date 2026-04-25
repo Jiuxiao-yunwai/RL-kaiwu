@@ -60,13 +60,9 @@ def read_relative_position(rel_pos):
     """
     direction = [0] * 8
     if rel_pos.direction != RelativeDirection.RELATIVE_DIRECTION_NONE:
-        if 1 <= rel_pos.direction <= 8:
-            direction[rel_pos.direction - 1] = 1
+        direction[rel_pos.direction - 1] = 1
 
-    if rel_pos.grid_distance < 0:
-        grid_distance = 1.0
-    else:
-        grid_distance = min(float(rel_pos.grid_distance) / 256.0, 1.0)
+    grid_distance = 1 if rel_pos.grid_distance < 0 else rel_pos.grid_distance / (128 * 128)
     feature = direction + [grid_distance]
     return feature
 
@@ -90,21 +86,27 @@ class Agent(BaseAgent):
     def learn(self, list_sample_data):
         self.algorithm.learn(list_sample_data)
 
-    def reset(self):
-        self.algorithm.reset_episode()
-
     @save_model_wrapper
     def save_model(self, path=None, id="1"):
+        # To save the model, it can consist of multiple files,
+        # and it is important to ensure that each filename includes the "model.ckpt-id" field.
+        # 保存模型, 可以是多个文件, 需要确保每个文件名里包括了model.ckpt-id字段
         model_file_path = f"{path}/model.ckpt-{str(id)}.pkl"
+
+        # Copy the model's state dictionary to the CPU
+        # 将模型的状态字典拷贝到CPU
         model_state_dict_cpu = {k: v.clone().cpu() for k, v in self.algorithm.model.state_dict().items()}
         torch.save(model_state_dict_cpu, model_file_path)
+
         self.logger.info(f"save model {model_file_path} successfully")
 
     @load_model_wrapper
     def load_model(self, path=None, id="1"):
+        # When loading the model, you can load multiple files,
+        # and it is important to ensure that each filename matches the one used during the save_model process.
+        # 加载模型, 可以加载多个文件, 注意每个文件名需要和save_model时保持一致
         model_file_path = f"{path}/model.ckpt-{str(id)}.pkl"
         self.algorithm.model.load_state_dict(torch.load(model_file_path, map_location=self.algorithm.device))
-        self.algorithm.update_target_q()
         self.logger.info(f"load model {model_file_path} successfully")
 
     def action_process(self, act_data):
@@ -140,6 +142,10 @@ class Agent(BaseAgent):
             - observation: 特征向量
             - legal_action: 合法动作的标注
         """
+        feature, legal_act = [], []
+
+        # Unpack the preprocessed feature data according to the protocol
+        # 对预处理后的特征数据按照协议进行解包
         (
             norm_pos,
             grid_pos,
@@ -156,34 +162,54 @@ class Agent(BaseAgent):
             treasure_count,
         ) = preprocessor.process(raw_obs)
 
+        # Feature processing 1: One-hot encoding of the current position
+        # 特征处理1：当前位置的one-hot编码
         one_hot_pos = one_hot_encoding(grid_pos)
-        norm_pos = [norm_pos.x, norm_pos.z]
-        target_pos_features = read_relative_position(end_pos)
 
+        # Feature processing 2: Normalized position
+        # 特征处理2：归一化位置
+        norm_pos = [norm_pos.x, norm_pos.z]
+
+        # Feature processing 3: Information about the current position relative to the end point
+        # 特征处理3：当前位置相对终点点位的信息
+        end_pos_features = read_relative_position(end_pos)
+
+        # Feature processing 4: Information about the current position relative to the treasure position
+        # 特征处理4: 当前位置相对宝箱位置的信息
         treasure_pos_features = []
         for treasure_pos in treasure_pos_list:
             treasure_pos_features = treasure_pos_features + list(read_relative_position(treasure_pos))
 
+        # Feature processing 5: Whether the buff is collectable
+        # 特征处理5：buff是否可收集
         buff_availability = 0
         if raw_obs:
             for organ in raw_obs.frame_state.organs:
                 if organ.sub_type == 2:
                     buff_availability = organ.status
 
+        # Feature processing 6: Whether the flash skill can be used
+        # 特征处理6：闪现技能是否可使用
         talent_availability = 0
         if raw_obs:
             talent_availability = raw_obs.frame_state.heroes[0].talent.status
 
+        # Feature processing 7: Next treasure chest to find
+        # 特征处理7：下一个需要寻找的宝箱
         treasure_dists = [pos.grid_distance for pos in treasure_pos_list]
-        valid_treasure_indices = [idx for idx, dist in enumerate(treasure_dists) if dist >= 0]
-        if valid_treasure_indices:
-            nearest_idx = min(valid_treasure_indices, key=lambda idx: treasure_dists[idx])
-            target_pos_features = read_relative_position(treasure_pos_list[nearest_idx])
+        if treasure_dists.count(1.0) < 15:
+            end_treasures_id = np.argmin(treasure_dists)
+            end_pos_features = read_relative_position(treasure_pos_list[end_treasures_id])
 
+        # Feature concatenation:
+        # Concatenate all necessary features as vector features (2 + 128*2 + 9  + 9*15 + 2 + 4*51*51 = 10808)
+        # 特征拼接：将所有需要的特征进行拼接作为向量特征 (2 + 128*2 + 9  + 9*15 + 2 + 4*51*51 = 10808)
         feature_vec = (
-            norm_pos + one_hot_pos + target_pos_features + treasure_pos_features + [buff_availability, talent_availability]
+            norm_pos + one_hot_pos + end_pos_features + treasure_pos_features + [buff_availability, talent_availability]
         )
         feature_map = obstacle_map + end_map + treasure_map + memory_map
+        # Legal actions
+        # 合法动作
         legal_act = list(raw_obs.legal_act)
 
         remain_info = {
@@ -192,12 +218,8 @@ class Agent(BaseAgent):
             "buff_pos": buff_pos,
             "treasure_pos": treasure_pos_list,
             "recent_position_map": recent_position_map,
-            "grid_pos": (grid_pos.x, grid_pos.z),
-            "prev_grid_pos": getattr(preprocessor, "prev_last_pos", None),
             "treasure_collected_count": treasure_collected_count,
             "treasure_count": treasure_count,
         }
-
-        self.algorithm.update_observation_context(remain_info)
 
         return ObsData(feature=feature_vec + feature_map, legal_act=legal_act), remain_info
