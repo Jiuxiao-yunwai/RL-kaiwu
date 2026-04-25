@@ -14,6 +14,7 @@ torch.set_num_threads(1)
 torch.set_num_interop_threads(1)
 
 from agent_target_dqn.feature.definition import ObsData
+from agent_target_dqn.conf.conf import Config
 import numpy as np
 from kaiwu_agent.agent.base_agent import (
     BaseAgent,
@@ -65,6 +66,86 @@ def read_relative_position(rel_pos):
     grid_distance = 1 if rel_pos.grid_distance < 0 else rel_pos.grid_distance / (128 * 128)
     feature = direction + [grid_distance]
     return feature
+
+
+ACTION_DIRECTION_DELTAS = [
+    (0, 1),    # Angle_0, world x+
+    (1, 1),    # Angle_45
+    (1, 0),    # Angle_90, world z+
+    (1, -1),   # Angle_135
+    (0, -1),   # Angle_180
+    (-1, -1),  # Angle_225
+    (-1, 0),   # Angle_270
+    (-1, 1),   # Angle_315
+]
+
+
+def _is_active_position(rel_pos):
+    return rel_pos.direction != RelativeDirection.RELATIVE_DIRECTION_NONE
+
+
+def _target_sort_key(rel_pos):
+    if rel_pos.grid_distance >= 0:
+        return rel_pos.grid_distance
+    return rel_pos.l2_distance + 128
+
+
+def select_navigation_target(end_pos, treasure_pos_list):
+    active_treasures = [pos for pos in treasure_pos_list if _is_active_position(pos)]
+    if active_treasures:
+        return min(active_treasures, key=_target_sort_key)
+    return end_pos
+
+
+def build_wall_aware_legal_act(raw_legal_act, obstacle_map):
+    """
+    Convert the environment legal action into a 16-dimension mask and block directions
+    whose next two grids are unsafe.
+    将环境合法动作转换为16维掩码，并屏蔽前方两格不安全的方向。
+    """
+    raw_legal_act = list(raw_legal_act) if raw_legal_act else [1, 0]
+    if len(raw_legal_act) >= 16:
+        base_move = raw_legal_act[: Config.DIM_OF_ACTION_DIRECTION]
+        base_talent = raw_legal_act[
+            Config.DIM_OF_ACTION_DIRECTION : Config.DIM_OF_ACTION_DIRECTION + Config.DIM_OF_TALENT
+        ]
+    else:
+        move_legal = int(raw_legal_act[0]) if len(raw_legal_act) > 0 else 1
+        talent_legal = int(raw_legal_act[1]) if len(raw_legal_act) > 1 else 0
+        base_move = [move_legal] * Config.DIM_OF_ACTION_DIRECTION
+        base_talent = [talent_legal] * Config.DIM_OF_TALENT
+
+    view_len = Config.VIEW_SIZE * 2 + 1
+    grid = np.array(obstacle_map, dtype=np.int8).reshape(view_len, view_len)
+    center = Config.VIEW_SIZE
+
+    def passable(row, col):
+        return 0 <= row < view_len and 0 <= col < view_len and grid[row][col] > 0
+
+    direction_mask = []
+    for row_delta, col_delta in ACTION_DIRECTION_DELTAS:
+        safe = True
+        for step in range(1, Config.ACTION_MASK_LOOKAHEAD + 1):
+            row = center + row_delta * step
+            col = center + col_delta * step
+            if not passable(row, col):
+                safe = False
+                break
+            if row_delta != 0 and col_delta != 0:
+                if not passable(center + row_delta * step, center) or not passable(center, center + col_delta * step):
+                    safe = False
+                    break
+        direction_mask.append(1 if safe else 0)
+
+    if not any(direction_mask):
+        direction_mask = [1] * Config.DIM_OF_ACTION_DIRECTION
+
+    move_mask = [int(base_move[i] and direction_mask[i]) for i in range(Config.DIM_OF_ACTION_DIRECTION)]
+    talent_mask = [int(base_talent[i] and direction_mask[i]) for i in range(Config.DIM_OF_TALENT)]
+
+    if not any(move_mask) and any(base_move):
+        move_mask = [int(v) for v in base_move]
+    return move_mask + talent_mask
 
 
 @attached
@@ -196,10 +277,8 @@ class Agent(BaseAgent):
 
         # Feature processing 7: Next treasure chest to find
         # 特征处理7：下一个需要寻找的宝箱
-        treasure_dists = [pos.grid_distance for pos in treasure_pos_list]
-        if treasure_dists.count(1.0) < 15:
-            end_treasures_id = np.argmin(treasure_dists)
-            end_pos_features = read_relative_position(treasure_pos_list[end_treasures_id])
+        navigation_target = select_navigation_target(end_pos, treasure_pos_list)
+        end_pos_features = read_relative_position(navigation_target)
 
         # Feature concatenation:
         # Concatenate all necessary features as vector features (2 + 128*2 + 9  + 9*15 + 2 + 4*51*51 = 10808)
@@ -210,7 +289,7 @@ class Agent(BaseAgent):
         feature_map = obstacle_map + end_map + treasure_map + memory_map
         # Legal actions
         # 合法动作
-        legal_act = list(raw_obs.legal_act)
+        legal_act = build_wall_aware_legal_act(raw_obs.legal_act, obstacle_map)
 
         remain_info = {
             "memory_map": memory_map,

@@ -348,7 +348,7 @@ class Preprocessor:
         treasure_collected_count = state_env_info.game_info.treasure_collected_count
         treasure_count = state_env_info.game_info.treasure_count
 
-        treasure_pos = [get_null_relative_pos()] * 15
+        treasure_pos = [get_null_relative_pos() for _ in range(15)]
         treasure_grids = set()
 
         organs = state_env_info.frame_state.organs

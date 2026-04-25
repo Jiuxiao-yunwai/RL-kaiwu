@@ -130,8 +130,6 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
             if truncated and frame_no is None:
                 break
 
-            treasures_num = 0
-
             # Calculate reward
             # 计算 reward
             if _obs is None:
@@ -159,9 +157,6 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
                 diy_4 += reward_treasure_dist
                 diy_5 += reward_treasure
 
-                treasure_dists = [organ.status for organ in _obs.frame_state.organs]
-                treasures_num = treasure_dists.count(1.0)
-
                 # Wall bump behavior statistics
                 # 撞墙行为统计
                 bump_cnt += is_bump
@@ -171,12 +166,12 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
             if truncated:
                 logger.info(
                     f"truncated is True, so this episode {episode} timeout, \
-                        collected treasures: {treasures_num  - 7}"
+                        collected treasures: {_obs.game_info.treasure_collected_count}"
                 )
             elif terminated:
                 logger.info(
                     f"terminated is True, so this episode {episode} reach the end, \
-                        collected treasures: {treasures_num  - 7}"
+                        collected treasures: {_obs.game_info.treasure_collected_count}"
                 )
             done = terminated or truncated
 
@@ -197,19 +192,21 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
 
             # If the number of game frames reaches the threshold, the sample is processed and sent to training
             # 如果游戏帧数达到阈值，则进行样本处理，将样本送去训练
-            if len(collector) % g_data_truncat == 0:
-                collector = sample_process(collector)
-                yield collector
+            if len(collector) >= g_data_truncat:
+                sample_batch = sample_process(collector)
+                yield sample_batch
+                collector.clear()
 
             # If the game is over, the sample is processed and sent to training
             # 如果游戏结束，则进行样本处理，将样本送去训练
             if done:
                 if len(collector) > 0:
-                    collector = sample_process(collector)
-                    yield collector
+                    sample_batch = sample_process(collector)
+                    yield sample_batch
+                    collector.clear()
 
                 if monitor:
-                    monitor_data = {"diy_2": diy_2, "diy_3": diy_3, "diy_4": diy_4, "diy_5": diy_5}
+                    monitor_data = {"diy_1": bump_cnt, "diy_2": diy_2, "diy_3": diy_3, "diy_4": diy_4, "diy_5": diy_5}
                     monitor.put_data({os.getpid(): monitor_data})
 
                 break

@@ -14,12 +14,12 @@ Author: Tencent AI Arena Authors
 class Config:
 
     # Input dimension of reverb sample on learner. Note that different algorithms have different dimensions.
-    # For example, the dimension of dqn in the sample code is 21624, and the dimension of target_dqn is 21624
+    # For example, the dimension of this target_dqn is 21652 after using 16-dimension action masks
     # **Note**, this item must be configured correctly and should be aligned with the NumpyData2SampleData function data in definition.py
     # Otherwise the sample dimension error may be reported
-    # learner上reverb样本的输入维度, 注意不同的算法维度不一样, 比如示例代码中dqn的维度是21624, target_dqn的维度是21624
+    # learner上reverb样本的输入维度, 注意不同的算法维度不一样, 当前target_dqn使用16维动作掩码后维度是21652
     # **注意**，此项必须正确配置，应该与definition.py中的NumpyData2SampleData函数数据对齐，否则可能报样本维度错误
-    SAMPLE_DIM = 21624
+    SAMPLE_DIM = 21652
 
     # field of view radius
     # 视野域半径
@@ -48,22 +48,34 @@ class Config:
 
     # Update frequency of target network
     # target网络的更新频率
-    TARGET_UPDATE_FREQ = 500
+    TARGET_UPDATE_FREQ = 300
 
     # Exploration factor, see the calculation of epsilon in the function in the above comment
     # 探索因子, epsilon的计算见上面注释中的函数
-    EPSILON_GREEDY_PROBABILITY = 300000
+    EPSILON_GREEDY_PROBABILITY = 350000
 
     # Discount factor GAMMA in RL
     # RL中的回报折扣GAMMA
-    GAMMA = 0.9
+    GAMMA = 0.97
 
     # epsilon
-    EPSILON = 0.1
+    EPSILON = 0.9
+
+    # Minimum exploration factor
+    # 最小探索因子
+    EPSILON_MIN = 0.05
 
     # Initial learning rate
     # 初始的学习率
-    START_LR = 1e-4
+    START_LR = 2e-4
+
+    # Gradient clipping threshold
+    # 梯度裁剪阈值
+    MAX_GRAD_NORM = 10.0
+
+    # Wall-aware action mask lookahead grids
+    # 防撞动作掩码向前探测格数
+    ACTION_MASK_LOOKAHEAD = 2
 
     # Configuration about kaiwu usage. The following configurations can be ignored
     # 关于开悟平台使用的配置，是可以忽略的配置，不需要改动
@@ -71,4 +83,4 @@ class Config:
     LSTM_HIDDEN_SHAPE = 0
     LSTM_CELL_SHAPE = 0
     OBSERVATION_SHAPE = 4500
-    LEGAL_ACTION_SHAPE = 2
+    LEGAL_ACTION_SHAPE = 16

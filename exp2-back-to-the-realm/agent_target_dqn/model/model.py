@@ -19,35 +19,44 @@ class Model(nn.Module):
         super().__init__()
         cnn_layer1 = [
             nn.Conv2d(4, 16, kernel_size=3, stride=1, padding=2),
-            nn.BatchNorm2d(16),
+            nn.GroupNorm(4, 16),
             nn.ReLU(),
         ]
         cnn_layer2 = [
             nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=2),
-            nn.BatchNorm2d(32),
+            nn.GroupNorm(8, 32),
             nn.ReLU(),
         ]
         cnn_layer3 = [
             nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=2),
-            nn.BatchNorm2d(64),
+            nn.GroupNorm(8, 64),
             nn.ReLU(),
         ]
         max_pool = [nn.MaxPool2d(kernel_size=(2, 2))]
         self.cnn_layer = cnn_layer1 + max_pool + cnn_layer2 + max_pool + cnn_layer3 + max_pool
         self.cnn_model = nn.Sequential(*self.cnn_layer)
 
-        fc_layer1 = [nn.Linear(np.prod(state_shape), 256), nn.ReLU(inplace=True)]
-        fc_layer2 = [nn.Linear(256, 128), nn.ReLU(inplace=True)]
-        fc_layer3 = [nn.Linear(128, np.prod(action_shape))]
+        self.action_shape = int(np.prod(action_shape))
+        self.softmax = softmax
 
-        self.fc_layers = fc_layer1 + fc_layer2
+        self.encoder = nn.Sequential(
+            nn.Linear(np.prod(state_shape), 512),
+            nn.ReLU(inplace=True),
+            nn.LayerNorm(512),
+            nn.Linear(512, 256),
+            nn.ReLU(inplace=True),
+        )
 
-        if action_shape:
-            self.fc_layers += fc_layer3
-        if softmax:
-            self.fc_layers += [nn.Softmax(dim=-1)]
-
-        self.model = nn.Sequential(*self.fc_layers)
+        self.value_head = nn.Sequential(
+            nn.Linear(256, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, 1),
+        )
+        self.advantage_head = nn.Sequential(
+            nn.Linear(256, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, self.action_shape),
+        )
 
         self.apply(self.init_weights)
 
@@ -71,5 +80,10 @@ class Model(nn.Module):
 
         concat_feature = torch.concat([feature_vec, feature_maps], dim=1)
 
-        logits = self.model(concat_feature)
+        hidden = self.encoder(concat_feature)
+        value = self.value_head(hidden)
+        advantage = self.advantage_head(hidden)
+        logits = value + advantage - advantage.mean(dim=1, keepdim=True)
+        if self.softmax:
+            logits = F.softmax(logits, dim=-1)
         return logits, state
