@@ -10,6 +10,7 @@ Author: Tencent AI Arena Authors
 
 import time
 import os
+from collections import deque
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -50,6 +51,10 @@ class Algorithm:
         self.predict_count = 0
         self.last_report_monitor_time = 0
         self.monitor = monitor
+        self.recent_move_dirs = deque(maxlen=4)
+        self.last_observed_grid = None
+        self.no_progress_steps = 0
+        self.policy_context = {}
 
     def learn(self, list_sample_data):
         t_data = list_sample_data
@@ -74,7 +79,7 @@ class Algorithm:
         )
 
         rew = torch.tensor(np.array([frame.rew for frame in t_data]), dtype=torch.float32, device=self.device)
-        rew = rew.clamp(-20.0, 20.0)
+        rew = rew.clamp(-Config.REWARD_CLIP, Config.REWARD_CLIP)
 
         _batch_feature_vec = [frame._obs[: self.obs_split[0]] for frame in t_data]
         _batch_feature_map = [frame._obs[self.obs_split[0] :] for frame in t_data]
@@ -206,7 +211,8 @@ class Algorithm:
             if not exploit_flag and np.random.rand() < self.epsilon:
                 random_action = np.random.rand(batch, self.act_shape)
                 random_action = torch.tensor(random_action, dtype=torch.float32).to(self.device)
-                random_action = random_action.masked_fill(~legal_act, 0)
+                random_action = self._apply_policy_bias(random_action, legal_act)
+                random_action = random_action.masked_fill(~legal_act, mask_value)
                 act = random_action.argmax(dim=1).cpu().view(-1, 1).tolist()
             else:
                 feature = [
@@ -214,12 +220,104 @@ class Algorithm:
                     self.__convert_to_tensor(feature_map).view(batch, *self.obs_split[1]),
                 ]
                 logits, _ = self.model(feature, state=None)
+                logits = self._apply_policy_bias(logits, legal_act)
                 logits = logits.masked_fill(~legal_act, mask_value)
                 act = logits.argmax(dim=1).cpu().view(-1, 1).tolist()
 
         format_action = [[instance[0] % self.direction_space, instance[0] // self.direction_space] for instance in act]
+        if format_action:
+            self.recent_move_dirs.append(format_action[0][0])
         self.predict_count += 1
         return [ActData(move_dir=i[0], use_talent=i[1]) for i in format_action]
+
+    def reset_episode(self):
+        self.recent_move_dirs.clear()
+        self.last_observed_grid = None
+        self.no_progress_steps = 0
+        self.policy_context = {}
+
+    def update_observation_context(self, remain_info):
+        current_grid = remain_info.get("grid_pos")
+        if current_grid is None:
+            return
+
+        if self.last_observed_grid == current_grid:
+            self.no_progress_steps += 1
+        else:
+            self.no_progress_steps = 0
+        self.last_observed_grid = current_grid
+
+        visit_count = remain_info.get("recent_position_map", {}).get(current_grid, 0)
+        guided_dir = self._extract_guided_direction(remain_info)
+        self.policy_context = {
+            "guided_dir": guided_dir,
+            "visit_count": visit_count,
+        }
+
+    def _extract_guided_direction(self, remain_info):
+        treasure_targets = [
+            pos for pos in remain_info.get("treasure_pos", []) if getattr(pos, "grid_distance", -1) >= 0
+        ]
+        target = min(treasure_targets, key=lambda pos: pos.grid_distance) if treasure_targets else remain_info.get("end_pos")
+        direction = getattr(target, "direction", 0)
+        if direction is None or direction <= 0:
+            return None
+        return int(direction) - 1
+
+    def _apply_policy_bias(self, action_scores, legal_act):
+        if action_scores.shape[0] != 1:
+            return action_scores
+
+        adjusted_scores = action_scores.clone()
+        guided_dir = self.policy_context.get("guided_dir")
+        visit_count = self.policy_context.get("visit_count", 0)
+        is_oscillating = self._is_recent_oscillation()
+
+        if guided_dir is not None:
+            guide_bonus = Config.GUIDE_ACTION_BONUS
+            if visit_count >= Config.STUCK_VISIT_COUNT or is_oscillating:
+                guide_bonus += 0.25
+            self._shift_direction_scores(adjusted_scores, legal_act, guided_dir, guide_bonus)
+
+        if self.recent_move_dirs:
+            last_move_dir = self.recent_move_dirs[-1]
+            if self.no_progress_steps > 0:
+                self._shift_direction_scores(
+                    adjusted_scores,
+                    legal_act,
+                    last_move_dir,
+                    -Config.NO_PROGRESS_ACTION_PENALTY,
+                )
+
+            if is_oscillating or visit_count >= Config.STUCK_VISIT_COUNT:
+                reverse_dir = self._opposite_direction(last_move_dir)
+                self._shift_direction_scores(
+                    adjusted_scores,
+                    legal_act,
+                    reverse_dir,
+                    -Config.BACKTRACK_ACTION_PENALTY,
+                )
+
+        return adjusted_scores
+
+    def _shift_direction_scores(self, action_scores, legal_act, move_dir, delta):
+        if move_dir is None:
+            return
+
+        candidate_indices = [move_dir, move_dir + self.direction_space]
+        for idx in candidate_indices:
+            if 0 <= idx < self.act_shape and bool(legal_act[0, idx].item()):
+                action_scores[0, idx] += delta
+
+    def _is_recent_oscillation(self):
+        if len(self.recent_move_dirs) < 2:
+            return False
+        return self.recent_move_dirs[-1] == self._opposite_direction(self.recent_move_dirs[-2])
+
+    def _opposite_direction(self, move_dir):
+        if move_dir is None:
+            return None
+        return (move_dir + self.direction_space // 2) % self.direction_space
 
     def soft_update_target_q(self):
         with torch.no_grad():

@@ -52,13 +52,10 @@ def get_direction(pos_1, pos_2):
     Calculate the bearing between two points
     输入两个点计算方位
     """
-    x1, z1 = pos_1.x, pos_1.z
-    x2, z2 = pos_2.x, pos_2.z
+    east_west = pos_2.z - pos_1.z
+    north_south = pos_2.x - pos_1.x
 
-    x = x2 - x1
-    z = z2 - z1
-
-    theta = math.atan2(z, x)
+    theta = math.atan2(north_south, east_west)
     if theta < 0:
         theta = 2 * math.pi + theta
 
@@ -68,34 +65,33 @@ def get_direction(pos_1, pos_2):
     return r_direction
 
 
-def bfs_from_center_to_goal(map_data, goal):
+def bfs_full_from_center(map_data):
     """
-    Perform BFS from the center of the map to the goal.
-    从地图中心出发到达目标点的BFS。
+    Perform a full BFS from the center of the local map.
+    从局部地图中心执行整图BFS，得到所有可达点距离。
     """
-    if not goal:
-        return -1
-
     center_x = map_data.shape[0] // 2
     center_y = map_data.shape[1] // 2
     start = (center_x, center_y)
 
-    visited = {start}
+    dist_map = np.full(map_data.shape, -1, dtype=np.int32)
+    if map_data[center_x][center_y] != 1:
+        dist_map[center_x][center_y] = 0
+        return dist_map
+
     queue = deque([(start, 0)])
+    dist_map[start] = 0
 
     while queue:
         loc, dist = queue.popleft()
-        if loc == goal:
-            return dist
-
         x, y = loc
         for dx, dy in [(-1, 0), (-1, -1), (1, 0), (1, -1), (0, -1), (-1, 1), (0, 1), (1, 1)]:
             nx, ny = x + dx, y + dy
-            if 0 <= nx < map_data.shape[0] and 0 <= ny < map_data.shape[1] and map_data[nx][ny] == 1 and (nx, ny) not in visited:
+            if 0 <= nx < map_data.shape[0] and 0 <= ny < map_data.shape[1] and map_data[nx][ny] == 1 and dist_map[nx, ny] == -1:
+                dist_map[nx, ny] = dist + 1
                 queue.append(((nx, ny), dist + 1))
-                visited.add((nx, ny))
+    return dist_map
 
-    return -1
 
 
 def get_relative_grid_pos(hero_grid_pos, target_grid_pos, n=50):
@@ -114,7 +110,7 @@ def get_relative_grid_pos(hero_grid_pos, target_grid_pos, n=50):
     return None
 
 
-def get_grid_relative_pos_info(hero_grid_pos, other_grid_pos, grid):
+def get_grid_relative_pos_info(hero_grid_pos, other_grid_pos, grid, dist_map=None):
     """
     Get local-view relative position info.
     获得局部视野下的相对位置信息。
@@ -123,9 +119,11 @@ def get_grid_relative_pos_info(hero_grid_pos, other_grid_pos, grid):
     rel_pos.direction = get_direction(hero_grid_pos, other_grid_pos)
     rel_pos.l2_distance = ln_distance(hero_grid_pos.x, hero_grid_pos.z, other_grid_pos.x, other_grid_pos.z, 2)
     rel_pos.path_distance = 0
-    rel_pos.grid_distance = bfs_from_center_to_goal(
-        grid, get_relative_grid_pos(hero_grid_pos, other_grid_pos, Config.VIEW_SIZE)
-    )
+    goal = get_relative_grid_pos(hero_grid_pos, other_grid_pos, Config.VIEW_SIZE)
+    if goal and dist_map is not None and 0 <= goal[0] < dist_map.shape[0] and 0 <= goal[1] < dist_map.shape[1]:
+        rel_pos.grid_distance = dist_map[goal[0], goal[1]]
+    else:
+        rel_pos.grid_distance = -1
     return rel_pos
 
 
@@ -176,6 +174,7 @@ class Preprocessor:
         self.recent_position_max = 100
         self.recent_positions = deque(maxlen=self.recent_position_max)
         self.last_pos = None
+        self.prev_last_pos = None
 
     def update_position(self, hero_grid_pos):
         if len(self.recent_positions) == self.recent_position_max:
@@ -185,6 +184,8 @@ class Preprocessor:
                 del self.recent_position_map[oldest_pos]
 
         pos = (hero_grid_pos.x, hero_grid_pos.z)
+        self.prev_last_pos = self.last_pos
+        self.last_pos = pos
         self.recent_positions.append(pos)
         self.recent_position_map[pos] += 1
         self.arrival_position_map[pos] += 1
@@ -194,6 +195,7 @@ class Preprocessor:
         for map_info in state_env_info.map_info:
             grid.append(map_info.values)
         grid = np.array(grid)
+        dist_map = bfs_full_from_center(grid)
 
         hero_pos = state_env_info.frame_state.heroes[0].pos
         hero_norm_pos = norm(hero_pos)
@@ -204,8 +206,8 @@ class Preprocessor:
 
         start_grid_pos = get_grid_pos(state_env_info.game_info.start_pos.x, state_env_info.game_info.start_pos.z)
         end_grid_pos = get_grid_pos(state_env_info.game_info.end_pos.x, state_env_info.game_info.end_pos.z)
-        start_pos = get_grid_relative_pos_info(hero_grid_pos, start_grid_pos, grid)
-        end_pos = get_grid_relative_pos_info(hero_grid_pos, end_grid_pos, grid)
+        start_pos = get_grid_relative_pos_info(hero_grid_pos, start_grid_pos, grid, dist_map)
+        end_pos = get_grid_relative_pos_info(hero_grid_pos, end_grid_pos, grid, dist_map)
         treasure_collected_count = state_env_info.game_info.treasure_collected_count
         treasure_count = state_env_info.game_info.treasure_count
 
@@ -216,14 +218,14 @@ class Preprocessor:
         for organ in organs:
             if organ.sub_type == 2:
                 if organ.status == 1:
-                    buff_pos = get_grid_relative_pos_info(hero_grid_pos, get_grid_pos(organ.pos.x, organ.pos.z), grid)
+                    buff_pos = get_grid_relative_pos_info(hero_grid_pos, get_grid_pos(organ.pos.x, organ.pos.z), grid, dist_map)
                 else:
                     buff_pos = get_null_relative_pos()
 
             elif organ.sub_type == 1:
                 if organ.status == 1:
                     organ_grid_pos = get_grid_pos(organ.pos.x, organ.pos.z)
-                    treasure_pos[organ.config_id - 1] = get_grid_relative_pos_info(hero_grid_pos, organ_grid_pos, grid)
+                    treasure_pos[organ.config_id - 1] = get_grid_relative_pos_info(hero_grid_pos, organ_grid_pos, grid, dist_map)
                     treasure_grids.add((organ_grid_pos.x, organ_grid_pos.z))
 
         grid_pos_x, grid_pos_z = hero_grid_pos.x, hero_grid_pos.z

@@ -96,6 +96,10 @@ def reward_shaping(
     treasure_count = int(_remain_info.get("treasure_count"))
     treasure_collected_count = int(_remain_info.get("treasure_collected_count"))
     prev_treasure_collected_count = int(remain_info.get("treasure_collected_count"))
+    current_grid = _remain_info.get("grid_pos")
+    prev_grid = remain_info.get("grid_pos")
+    prev_prev_grid = remain_info.get("prev_grid_pos")
+    current_visit_count = _remain_info.get("recent_position_map", {}).get(current_grid, 0) if current_grid else 0
     is_treasures_remain = treasure_collected_count < treasure_count
 
     def _clip_delta(prev_dist, curr_dist, scale):
@@ -158,6 +162,12 @@ def reward_shaping(
         pass_times = recent_position_map[(hero_grid_pos[0], hero_grid_pos[1])]
         reward_exploration = -min(0.09 * pass_times, 0.7)
 
+    reward_backtrack = 0.0
+    if current_grid and prev_prev_grid and current_grid == prev_prev_grid and current_grid != prev_grid:
+        reward_backtrack = -0.9
+    if current_visit_count >= 3:
+        reward_backtrack -= min(0.18 * (current_visit_count - 2), 0.9)
+
     reward = [
         reward_end_dist * 2.4,
         reward_treasure_dist * 2.2,
@@ -168,6 +178,7 @@ def reward_shaping(
         reward_step,
         reward_bump,
         reward_memory,
+        reward_backtrack,
         reward_exploration,
     ]
 

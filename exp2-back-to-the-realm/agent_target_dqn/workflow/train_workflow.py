@@ -118,6 +118,8 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
         obs, state_env_info = env.reset(usr_conf=usr_conf)
         if obs is None:
             continue
+        if hasattr(agent, "reset"):
+            agent.reset()
 
         obs_data, remain_info = agent.observation_process(obs, preprocessor, state_env_info)
 

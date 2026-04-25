@@ -90,6 +90,9 @@ class Agent(BaseAgent):
     def learn(self, list_sample_data):
         self.algorithm.learn(list_sample_data)
 
+    def reset(self):
+        self.algorithm.reset_episode()
+
     @save_model_wrapper
     def save_model(self, path=None, id="1"):
         model_file_path = f"{path}/model.ckpt-{str(id)}.pkl"
@@ -155,7 +158,7 @@ class Agent(BaseAgent):
 
         one_hot_pos = one_hot_encoding(grid_pos)
         norm_pos = [norm_pos.x, norm_pos.z]
-        end_pos_features = read_relative_position(end_pos)
+        target_pos_features = read_relative_position(end_pos)
 
         treasure_pos_features = []
         for treasure_pos in treasure_pos_list:
@@ -171,8 +174,14 @@ class Agent(BaseAgent):
         if raw_obs:
             talent_availability = raw_obs.frame_state.heroes[0].talent.status
 
+        treasure_dists = [pos.grid_distance for pos in treasure_pos_list]
+        valid_treasure_indices = [idx for idx, dist in enumerate(treasure_dists) if dist >= 0]
+        if valid_treasure_indices:
+            nearest_idx = min(valid_treasure_indices, key=lambda idx: treasure_dists[idx])
+            target_pos_features = read_relative_position(treasure_pos_list[nearest_idx])
+
         feature_vec = (
-            norm_pos + one_hot_pos + end_pos_features + treasure_pos_features + [buff_availability, talent_availability]
+            norm_pos + one_hot_pos + target_pos_features + treasure_pos_features + [buff_availability, talent_availability]
         )
         feature_map = obstacle_map + end_map + treasure_map + memory_map
         legal_act = list(raw_obs.legal_act)
@@ -183,8 +192,12 @@ class Agent(BaseAgent):
             "buff_pos": buff_pos,
             "treasure_pos": treasure_pos_list,
             "recent_position_map": recent_position_map,
+            "grid_pos": (grid_pos.x, grid_pos.z),
+            "prev_grid_pos": getattr(preprocessor, "prev_last_pos", None),
             "treasure_collected_count": treasure_collected_count,
             "treasure_count": treasure_count,
         }
+
+        self.algorithm.update_observation_context(remain_info)
 
         return ObsData(feature=feature_vec + feature_map, legal_act=legal_act), remain_info
