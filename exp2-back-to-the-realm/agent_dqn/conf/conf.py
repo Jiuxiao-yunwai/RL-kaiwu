@@ -54,12 +54,21 @@ class Config:
     # RL中的回报折扣GAMMA
     GAMMA = 0.9
 
-    # epsilon
-    EPSILON = 0.1
+    # Initial epsilon
+    # 初始探索率
+    EPSILON = 0.9
+
+    # Minimum epsilon
+    # 最小探索率
+    EPSILON_MIN = 0.1
 
     # Initial learning rate
     # 初始的学习率
     START_LR = 1e-4
+
+    # Gradient clipping threshold
+    # 梯度裁剪阈值
+    MAX_GRAD_NORM = 1.0
 
     # Configuration about kaiwu usage. The following configurations can be ignored
     # 关于开悟平台使用的配置，是可以忽略的配置，不需要改动

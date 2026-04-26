@@ -23,7 +23,7 @@ from arena_proto.back_to_the_realm.custom_pb2 import (
     RelativeDistance,
     RelativePosition,
 )
-from agent_target_dqn.conf.conf import Config
+from agent_dqn.conf.conf import Config
 
 
 def norm(pos):

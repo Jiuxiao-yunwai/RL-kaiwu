@@ -10,6 +10,7 @@ Author: Tencent AI Arena Authors
 
 import time
 import os
+from copy import deepcopy
 from kaiwu_agent.utils.common_func import Frame, attached
 
 from tools.train_env_conf_validate import check_usr_conf, read_usr_conf
@@ -19,6 +20,57 @@ from agent_target_dqn.feature.definition import (
 )
 from agent_target_dqn.feature.preprocessor import Preprocessor
 from tools.metrics_utils import get_training_metrics
+
+
+TREASURE_CURRICULUM = [
+    (80, []),
+    (200, [3, 4, 5]),
+    (400, [3, 4, 5, 6, 7, 8]),
+    (650, [3, 4, 5, 6, 7, 8, 9, 10, 11]),
+    (float("inf"), [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]),
+]
+
+
+def build_curriculum_usr_conf(base_usr_conf, epoch):
+    usr_conf = deepcopy(base_usr_conf)
+    env_conf = usr_conf["env_conf"]
+    for end_epoch, treasure_ids in TREASURE_CURRICULUM:
+        if epoch < end_epoch:
+            env_conf["treasure_random"] = False
+            env_conf["treasure_id"] = treasure_ids
+            env_conf["treasure_count"] = len(treasure_ids)
+            return usr_conf
+    return usr_conf
+
+
+def safe_getattr(obj, name, default=0):
+    return getattr(obj, name, default) if obj is not None else default
+
+
+def log_map_train_done(logger, epoch, episode, status, step, frame_no, obs, score, episode_reward, bump_cnt, usr_conf):
+    if not logger:
+        return
+
+    game_info = obs.game_info if obs is not None else None
+    env_conf = usr_conf.get("env_conf", {})
+    treasure_ids = env_conf.get("treasure_id", [])
+    configured_treasures = len(treasure_ids) if treasure_ids else env_conf.get("treasure_count", 0)
+
+    collected_treasures = safe_getattr(game_info, "treasure_collected_count", safe_getattr(score, "treasure_count", 0))
+    total_treasures = safe_getattr(game_info, "treasure_count", configured_treasures)
+    total_score = safe_getattr(game_info, "total_score", safe_getattr(score, "total_score", 0))
+    treasure_score = safe_getattr(game_info, "treasure_score", 0)
+    buff_count = safe_getattr(game_info, "buff_count", safe_getattr(score, "buff_count", 0))
+    talent_count = safe_getattr(game_info, "talent_count", safe_getattr(score, "talent_count", 0))
+
+    logger.info(
+        "Map train done | "
+        f"epoch={epoch}, episode={episode}, status={status}, step={step}, frame_no={frame_no}, "
+        f"reward={episode_reward:.3f}, total_score={total_score}, "
+        f"treasures={collected_treasures}/{total_treasures}, treasure_score={treasure_score}, "
+        f"bump_cnt={bump_cnt}, buff_cnt={buff_count}, skill_cnt={talent_count}, "
+        f"curriculum_treasure_ids={treasure_ids}"
+    )
 
 
 @attached
@@ -45,9 +97,12 @@ def workflow(envs, agents, logger=None, monitor=None):
         return
 
     for epoch in range(epoch_num):
+        epoch_usr_conf = build_curriculum_usr_conf(usr_conf, epoch)
         epoch_total_rew = 0
         data_length = 0
-        for g_data in run_episodes(episode_num_every_epoch, env, agent, g_data_truncat, usr_conf, logger, monitor):
+        for g_data in run_episodes(
+            episode_num_every_epoch, env, agent, g_data_truncat, epoch_usr_conf, logger, monitor, epoch
+        ):
             data_length += len(g_data)
             total_rew = sum([i.rew for i in g_data])
             epoch_total_rew += total_rew
@@ -68,7 +123,7 @@ def workflow(envs, agents, logger=None, monitor=None):
         logger.info(f"Avg Step Reward: {avg_step_reward}, Epoch: {epoch}, Data Length: {data_length}")
 
 
-def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monitor):
+def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monitor, epoch=0):
     for episode in range(n_episode):
         collector = list()
         preprocessor = Preprocessor()
@@ -104,6 +159,7 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
         diy_3 = 0
         diy_4 = 0
         diy_5 = 0
+        episode_reward = 0
 
         while not done:
             # Agent performs inference, gets the predicted action for the next frame
@@ -156,6 +212,7 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
                 diy_3 += reward_exploration
                 diy_4 += reward_treasure_dist
                 diy_5 += reward_treasure
+                episode_reward += reward
 
                 # Wall bump behavior statistics
                 # 撞墙行为统计
@@ -163,17 +220,22 @@ def run_episodes(n_episode, env, agent, g_data_truncat, usr_conf, logger, monito
 
             # Determine game over, and update the number of victories
             # 判断游戏结束, 并更新胜利次数
-            if truncated:
-                logger.info(
-                    f"truncated is True, so this episode {episode} timeout, \
-                        collected treasures: {_obs.game_info.treasure_collected_count}"
-                )
-            elif terminated:
-                logger.info(
-                    f"terminated is True, so this episode {episode} reach the end, \
-                        collected treasures: {_obs.game_info.treasure_collected_count}"
-                )
             done = terminated or truncated
+            if done:
+                status = "terminated" if terminated else "truncated"
+                log_map_train_done(
+                    logger,
+                    epoch,
+                    episode,
+                    status,
+                    step,
+                    frame_no,
+                    _obs,
+                    score,
+                    episode_reward,
+                    bump_cnt,
+                    usr_conf,
+                )
 
             # Construct game frames to prepare for sample construction
             # 构造游戏帧，为构造样本做准备

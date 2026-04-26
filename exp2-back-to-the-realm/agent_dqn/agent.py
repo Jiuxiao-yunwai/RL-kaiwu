@@ -60,7 +60,7 @@ def read_relative_position(rel_pos):
     if rel_pos.direction != RelativeDirection.RELATIVE_DIRECTION_NONE:
         direction[rel_pos.direction - 1] = 1
 
-    grid_distance = 1 if rel_pos.grid_distance < 0 else rel_pos.grid_distance / (128 * 128)
+    grid_distance = 1 if rel_pos.grid_distance < 0 else rel_pos.grid_distance / 256.0
     feature = direction + [grid_distance]
     return feature
 
@@ -195,8 +195,9 @@ class Agent(BaseAgent):
         # Feature processing 7: Next treasure chest to find
         # 特征处理7：下一个需要寻找的宝箱
         treasure_dists = [pos.grid_distance for pos in treasure_pos_list]
-        if treasure_dists.count(1.0) < 15:
-            end_treasures_id = np.argmin(treasure_dists)
+        valid_treasure_indices = [idx for idx, dist in enumerate(treasure_dists) if dist >= 0]
+        if valid_treasure_indices:
+            end_treasures_id = min(valid_treasure_indices, key=lambda idx: treasure_dists[idx])
             end_pos_features = read_relative_position(treasure_pos_list[end_treasures_id])
 
         # Feature concatenation:

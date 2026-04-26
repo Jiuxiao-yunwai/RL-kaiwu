@@ -10,7 +10,7 @@ Author: Tencent AI Arena Authors
 
 import numpy as np
 from kaiwu_agent.utils.common_func import attached, create_cls
-from agent_target_dqn.conf.conf import Config
+from agent_dqn.conf.conf import Config
 
 
 def bump(a1, b1, a2, b2):
@@ -95,8 +95,6 @@ def reward_shaping(
     obs_data,
     _obs_data,
 ):
-    reward = 0
-
     # Get the current position coordinates of the agent
     # 获取当前智能体的位置坐标
     pos = _obs_data.frame_state.heroes[0].pos
@@ -106,8 +104,8 @@ def reward_shaping(
     # 获取当前智能体的位置相对于终点, buff, 宝箱的栅格化距离
     end_dist = _remain_info.get("end_pos").l2_distance
     treasure_dists = [pos.grid_distance if pos.grid_distance > 0 else -1 for pos in _remain_info.get("treasure_pos")]
-    treasure_count = _remain_info.get("treasure_count")
-    treasure_collected_count = _remain_info.get("treasure_collected_count")
+    treasure_count = int(_remain_info.get("treasure_count") or 0)
+    treasure_collected_count = int(_remain_info.get("treasure_collected_count") or 0)
 
     # Get the agent's position from the previous frame
     # 获取智能体上一帧的位置
@@ -121,7 +119,7 @@ def reward_shaping(
     prev_treasure_dists = [
         pos.grid_distance if pos.grid_distance > 0 else -1 for pos in remain_info.get("treasure_pos")
     ]
-    prev_treasure_collected_count = remain_info.get("treasure_collected_count")
+    prev_treasure_collected_count = int(remain_info.get("treasure_collected_count") or 0)
 
     # Are there any remaining treasure chests
     # 是否有剩余宝箱
@@ -134,14 +132,18 @@ def reward_shaping(
     reward_end_dist = 0
     # Reward 1.1 Reward for getting closer to the end point
     # 奖励1.1 向终点靠近的奖励
-    if prev_end_dist > 0 and treasure_collected_count > 0:
+    if prev_end_dist > 0 and not is_treasures_remain:
         reward_end_dist = 1 if end_dist < prev_end_dist else -1
 
     # Reward 1.2 Reward for winning
     # 奖励1.2 获胜的奖励
     reward_win = 0
     if terminated:
-        reward_win = treasure_collected_count
+        reward_win = 1
+
+    # Reward 1.3 Penalty for timeout
+    # 奖励1.3 超时惩罚
+    reward_timeout = 1 if truncated else 0
 
     """
     Reward 2. Rewards related to the treasure chest
@@ -176,11 +178,11 @@ def reward_shaping(
     奖励3. 与buff相关的奖励
     """
     # Reward 3.1 Reward for getting closer to the buff
-    # 奖励3.1 靠近buff的奖励 (TODO)
+    # 奖励3.1 靠近buff的奖励。朴素版本暂不加入 buff 引导。
     reward_buff_dist = 0
 
     # Reward 3.2 Reward for getting the buff
-    # 奖励3.2 获得buff的奖励 (TODO)
+    # 奖励3.2 获得buff的奖励。朴素版本暂不加入 buff 引导。
     reward_buff = 0
 
     """
@@ -188,14 +190,14 @@ def reward_shaping(
     奖励4. 与闪现相关的奖励
     """
     reward_flicker = 0
-    # Reward 4.1 Penalty for flickering into the wall (TODO)
-    # 奖励4.1 撞墙闪现的惩罚 (TODO)
+    # Reward 4.1 Penalty for flickering into the wall
+    # 奖励4.1 撞墙闪现的惩罚。朴素版本暂不单独处理闪现。
 
-    # Reward 4.2 Reward for normal flickering (TODO)
-    # 奖励4.2 正常闪现的奖励 (TODO)
+    # Reward 4.2 Reward for normal flickering
+    # 奖励4.2 正常闪现的奖励。朴素版本暂不单独处理闪现。
 
-    # Reward 4.3 Reward for super flickering (TODO)
-    # 奖励4.3 超级闪现的奖励 (TODO)
+    # Reward 4.3 Reward for super flickering
+    # 奖励4.3 超级闪现的奖励。朴素版本暂不单独处理闪现。
 
     """
     Reward 5. Rewards for quick clearance
@@ -203,15 +205,14 @@ def reward_shaping(
     """
     reward_step = 1
     # Reward 5.1 Penalty for not getting close to the end point after collecting all the treasure chests
-    # (TODO: Give penalty after collecting all the treasure chests, encourage full collection)
+    # This simple version keeps only the fixed step penalty below.
     # 奖励5.1 收集完所有宝箱却未靠近终点的惩罚
-    # (TODO: 收集完宝箱后再给予惩罚, 鼓励宝箱全收集)
+    # 朴素版本只保留下面的固定步数惩罚。
 
     # Reward 5.2 Penalty for repeated exploration
     # 奖励5.2 重复探索的惩罚
-    reward_memory = 0
     memory_map = remain_info.get("memory_map")
-    reward_memory = memory_map[len(memory_map) // 2]
+    reward_memory = memory_map[len(memory_map) // 2] if memory_map else 0
 
     # Reward 5.3 Penalty for bumping into the wall
     # 奖励5.3 撞墙的惩罚
@@ -228,7 +229,7 @@ def reward_shaping(
     # Exploration Reward
     # 探索奖励
     reward_exploration = 0
-    recent_position_map = remain_info.get("recent_position_map")
+    recent_position_map = remain_info.get("recent_position_map") or {}
     hero_grid_pos = convert_pos_to_grid_pos(curr_pos_x, curr_pos_z)
 
     if (hero_grid_pos[0], hero_grid_pos[1]) not in recent_position_map:
@@ -244,13 +245,14 @@ def reward_shaping(
     """
     reward_weight = {
         "reward_end_dist": 0.5,
-        "reward_win": 0.5,
+        "reward_win": 5.0,
+        "reward_timeout": -5.0,
         "reward_buff_dist": 0,
         "reward_buff": 0,
         "reward_treasure_dists": 0.5,
-        "reward_treasure": 1.0,
+        "reward_treasure": 2.0,
         "reward_flicker": 0,
-        "reward_step": -0.0005,
+        "reward_step": -0.001,
         "reward_bump": -1.0,
         "reward_memory": -0.005,
         "reward_exploration": 0.05,
@@ -259,6 +261,7 @@ def reward_shaping(
     reward = [
         reward_end_dist * reward_weight["reward_end_dist"],
         reward_win * reward_weight["reward_win"],
+        reward_timeout * reward_weight["reward_timeout"],
         reward_buff_dist * reward_weight["reward_buff_dist"],
         reward_buff * reward_weight["reward_buff"],
         reward_treasure_dist * reward_weight["reward_treasure_dists"],
@@ -285,33 +288,53 @@ def sample_process(list_game_data):
     return [SampleData(**i.__dict__) for i in list_game_data]
 
 
+def _to_1d_float_array(data):
+    arr = np.asarray(data)
+    if arr.dtype == object:
+        parts = []
+        for item in arr.reshape(-1):
+            if isinstance(item, (list, tuple, np.ndarray)):
+                parts.append(_to_1d_float_array(item))
+            else:
+                parts.append(np.asarray([item], dtype=np.float32))
+        return np.concatenate(parts) if parts else np.asarray([], dtype=np.float32)
+    return arr.astype(np.float32, copy=False).reshape(-1)
+
+
 # SampleData <----> NumpyData
 @attached
 def SampleData2NumpyData(g_data):
     return np.hstack(
         (
-            np.array(g_data.obs, dtype=np.float32),
-            np.array(g_data._obs, dtype=np.float32),
-            np.array(g_data.obs_legal, dtype=np.float32),
-            np.array(g_data._obs_legal, dtype=np.float32),
-            np.array(g_data.act, dtype=np.float32),
-            np.array(g_data.rew, dtype=np.float32),
-            np.array(g_data.ret, dtype=np.float32),
-            np.array(g_data.done, dtype=np.float32),
+            _to_1d_float_array(g_data.obs),
+            _to_1d_float_array(g_data._obs),
+            _to_1d_float_array(g_data.obs_legal),
+            _to_1d_float_array(g_data._obs_legal),
+            _to_1d_float_array(g_data.act),
+            _to_1d_float_array(g_data.rew),
+            _to_1d_float_array(g_data.ret),
+            _to_1d_float_array(g_data.done),
         )
     )
 
 
 @attached
 def NumpyData2SampleData(s_data):
+    s_data = _to_1d_float_array(s_data)
     obs_data_size = (2 * (Config.VIEW_SIZE) + 1) ** 2 * 4 + 404
+    legal_action_size = Config.LEGAL_ACTION_SHAPE
+    obs_legal_begin = 2 * obs_data_size
+    obs_legal_end = obs_legal_begin + legal_action_size
+    next_obs_legal_end = obs_legal_end + legal_action_size
+    if len(s_data) != Config.SAMPLE_DIM:
+        raise ValueError(f"sample data length {len(s_data)} != Config.SAMPLE_DIM {Config.SAMPLE_DIM}")
     return SampleData(
         # Refer to the DESC_OBS_SPLIT configuration in config.py for dimension reference
         # 维度参考config.py 中的 DESC_OBS_SPLIT配置
         obs=s_data[:obs_data_size],
         _obs=s_data[obs_data_size : 2 * obs_data_size],
-        obs_legal=s_data[-8:-6],
-        _obs_legal=s_data[-6:-4],
+        obs_legal=s_data[obs_legal_begin:obs_legal_end],
+        _obs_legal=s_data[obs_legal_end:next_obs_legal_end],
         act=s_data[-4],
         rew=s_data[-3],
         ret=s_data[-2],

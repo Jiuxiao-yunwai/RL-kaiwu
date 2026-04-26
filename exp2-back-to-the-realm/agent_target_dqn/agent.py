@@ -63,7 +63,7 @@ def read_relative_position(rel_pos):
     if rel_pos.direction != RelativeDirection.RELATIVE_DIRECTION_NONE:
         direction[rel_pos.direction - 1] = 1
 
-    grid_distance = 1 if rel_pos.grid_distance < 0 else rel_pos.grid_distance / (128 * 128)
+    grid_distance = 1 if rel_pos.grid_distance < 0 else min(rel_pos.grid_distance / 256, 1)
     feature = direction + [grid_distance]
     return feature
 
@@ -78,23 +78,6 @@ ACTION_DIRECTION_DELTAS = [
     (-1, 0),   # Angle_270
     (-1, 1),   # Angle_315
 ]
-
-
-def _is_active_position(rel_pos):
-    return rel_pos.direction != RelativeDirection.RELATIVE_DIRECTION_NONE
-
-
-def _target_sort_key(rel_pos):
-    if rel_pos.grid_distance >= 0:
-        return rel_pos.grid_distance
-    return rel_pos.l2_distance + 128
-
-
-def select_navigation_target(end_pos, treasure_pos_list):
-    active_treasures = [pos for pos in treasure_pos_list if _is_active_position(pos)]
-    if active_treasures:
-        return min(active_treasures, key=_target_sort_key)
-    return end_pos
 
 
 def build_wall_aware_legal_act(raw_legal_act, obstacle_map):
@@ -141,7 +124,7 @@ def build_wall_aware_legal_act(raw_legal_act, obstacle_map):
         direction_mask = [1] * Config.DIM_OF_ACTION_DIRECTION
 
     move_mask = [int(base_move[i] and direction_mask[i]) for i in range(Config.DIM_OF_ACTION_DIRECTION)]
-    talent_mask = [int(base_talent[i] and direction_mask[i]) for i in range(Config.DIM_OF_TALENT)]
+    talent_mask = [int(base_talent[i]) for i in range(Config.DIM_OF_TALENT)]
 
     if not any(move_mask) and any(base_move):
         move_mask = [int(v) for v in base_move]
@@ -274,11 +257,6 @@ class Agent(BaseAgent):
         talent_availability = 0
         if raw_obs:
             talent_availability = raw_obs.frame_state.heroes[0].talent.status
-
-        # Feature processing 7: Next treasure chest to find
-        # 特征处理7：下一个需要寻找的宝箱
-        navigation_target = select_navigation_target(end_pos, treasure_pos_list)
-        end_pos_features = read_relative_position(navigation_target)
 
         # Feature concatenation:
         # Concatenate all necessary features as vector features (2 + 128*2 + 9  + 9*15 + 2 + 4*51*51 = 10808)

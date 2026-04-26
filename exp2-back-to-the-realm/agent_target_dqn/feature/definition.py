@@ -115,15 +115,11 @@ def reward_shaping(
             return None
         return min(candidates)[1]
 
-    def progress_reward(prev_dist, curr_dist):
+    def progress_reward(prev_dist, curr_dist, scale=8.0):
         if prev_dist is None or curr_dist is None:
             return 0
         delta = prev_dist - curr_dist
-        if delta > 0:
-            return min(1.0, 0.2 + delta / 8.0)
-        if delta == 0:
-            return -0.1
-        return max(-1.0, delta / 8.0)
+        return float(np.clip(delta / scale, -0.25, 0.25))
 
     curr_pos = _obs_data.frame_state.heroes[0].pos
     prev_pos = obs_data.frame_state.heroes[0].pos
@@ -136,11 +132,18 @@ def reward_shaping(
     prev_treasure_collected_count = remain_info.get("treasure_collected_count", 0)
     missing_treasures = max(0, treasure_count - treasure_collected_count)
     is_treasures_remain = missing_treasures > 0
+    collect_ratio = treasure_collected_count / treasure_count
 
     curr_treasure_pos = _remain_info.get("treasure_pos")
     prev_treasure_pos = remain_info.get("treasure_pos")
 
-    reward_end_dist = 0
+    reward_end_dist = progress_reward(
+        rel_distance(remain_info.get("end_pos")),
+        rel_distance(_remain_info.get("end_pos")),
+        scale=10.0,
+    )
+    reward_end_dist *= 0.4 + 0.6 * collect_ratio
+
     reward_treasure_dist = 0
     if is_treasures_remain:
         target_idx = nearest_active_index(curr_treasure_pos)
@@ -148,38 +151,35 @@ def reward_shaping(
             reward_treasure_dist = progress_reward(
                 rel_distance(prev_treasure_pos[target_idx]),
                 rel_distance(curr_treasure_pos[target_idx]),
+                scale=8.0,
             )
-    else:
-        reward_end_dist = progress_reward(
-            rel_distance(remain_info.get("end_pos")),
-            rel_distance(_remain_info.get("end_pos")),
-        )
+            reward_treasure_dist *= 1.0 - 0.35 * collect_ratio
 
     collected_delta = max(0, treasure_collected_count - prev_treasure_collected_count)
-    reward_treasure = 6.0 * collected_delta
+    reward_treasure = 8.0 * collected_delta
 
     prev_buff_count = getattr(obs_data.game_info, "buff_count", 0)
     curr_buff_count = getattr(_obs_data.game_info, "buff_count", 0)
-    reward_buff = 0.8 if curr_buff_count > prev_buff_count else 0
+    reward_buff = 0.5 if curr_buff_count > prev_buff_count else 0
     reward_buff_dist = 0
 
     prev_talent_count = getattr(obs_data.game_info, "talent_count", 0)
     curr_talent_count = getattr(_obs_data.game_info, "talent_count", 0)
     reward_flicker = 0
     if curr_talent_count > prev_talent_count:
-        reward_flicker = 1.0 if move_dist >= 1500 else -1.0
+        reward_flicker = 0.4 if move_dist >= 1500 else -0.3
 
     reward_win = 0
     if terminated:
-        completion_ratio = treasure_collected_count / treasure_count
-        reward_win = 10.0 * completion_ratio
+        reward_win = 25.0 + 4.0 * treasure_collected_count
         if missing_treasures == 0:
-            reward_win += 30.0
+            reward_win += 40.0
         else:
-            reward_win -= 3.0 * missing_treasures
+            reward_win -= 0.8 * missing_treasures
     elif truncated:
-        reward_win = -15.0 - missing_treasures
+        reward_win = -8.0 - 0.5 * missing_treasures
 
+    reward_score = min(getattr(score, "score", 0) / 50.0, 4.0)
     reward_step = 1
     reward_bump = 0
     is_bump = bump(curr_pos_x, curr_pos_z, prev_pos_x, prev_pos_z)
@@ -198,21 +198,22 @@ def reward_shaping(
         reward_exploration = 1
     else:
         pass_times = recent_position_map[(hero_grid_pos[0], hero_grid_pos[1])]
-        reward_exploration = max(-0.25 * pass_times, -2)
+        reward_exploration = max(-0.1 * pass_times, -1)
 
     reward_weight = {
-        "reward_end_dist": 0.8,
+        "reward_end_dist": 1.0,
         "reward_win": 1.0,
         "reward_buff_dist": 0,
-        "reward_buff": 0.5,
-        "reward_treasure_dists": 0.7,
+        "reward_buff": 1.0,
+        "reward_treasure_dists": 1.0,
         "reward_treasure": 1.0,
-        "reward_flicker": 0.4,
-        "reward_step": -0.01,
-        "reward_bump": -1.5,
-        "reward_memory": -0.03,
-        "reward_exploration": 0.08,
-        "reward_stay": -1.0,
+        "reward_score": 1.0,
+        "reward_flicker": 1.0,
+        "reward_step": -0.003,
+        "reward_bump": -0.45,
+        "reward_memory": -0.01,
+        "reward_exploration": 0.02,
+        "reward_stay": -0.35,
     }
 
     reward = [
@@ -222,6 +223,7 @@ def reward_shaping(
         reward_buff * reward_weight["reward_buff"],
         reward_treasure_dist * reward_weight["reward_treasure_dists"],
         reward_treasure * reward_weight["reward_treasure"],
+        reward_score * reward_weight["reward_score"],
         reward_flicker * reward_weight["reward_flicker"],
         reward_step * reward_weight["reward_step"],
         reward_bump * reward_weight["reward_bump"],
