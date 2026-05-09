@@ -25,6 +25,11 @@ from arena_proto.back_to_the_realm.custom_pb2 import (
 )
 from agent_target_dqn.conf.conf import Config
 
+try:
+    from kaiwu_env.conf import yaml_back_to_the_realm_treasure_path_crab as treasure_data
+except Exception:
+    treasure_data = None
+
 
 def norm(pos):
     """
@@ -106,11 +111,16 @@ def get_direction(pos_1, pos_2):
         int: Direction encoding, refer to the protocol
         int: 方向编码，参考协议
     """
-    x1, z1 = pos_1.x, pos_1.z
-    x2, z2 = pos_2.x, pos_2.z
+    # Grid Position.x is the map row and Position.z is the map column after
+    # get_grid_pos swaps the original world axes. Convert it back when encoding
+    # protocol directions so action 0 still means East.
+    x1, z1 = pos_1.z, pos_1.x
+    x2, z2 = pos_2.z, pos_2.x
 
     x = x2 - x1
     z = z2 - z1
+    if x == 0 and z == 0:
+        return RelativeDirection.RELATIVE_DIRECTION_NONE
 
     # Calculate the angle
     # 计算角度
@@ -126,6 +136,63 @@ def get_direction(pos_1, pos_2):
     if r_direction == 9:
         r_direction = 1
     return r_direction
+
+
+DIRECTION_DELTAS = [
+    (0, 1),  # East
+    (1, 1),  # NorthEast
+    (1, 0),  # North
+    (1, -1),  # NorthWest
+    (0, -1),  # West
+    (-1, -1),  # SouthWest
+    (-1, 0),  # South
+    (-1, 1),  # SouthEast
+]
+
+
+def bfs_next_direction(grid, goal):
+    """
+    Return the first passable action direction on a shortest local path.
+    返回局部最短路上的第一步动作方向，方向编码与动作编号保持一致。
+    """
+    if not goal:
+        return None
+
+    rows, cols = grid.shape
+    center_x = rows // 2
+    center_y = cols // 2
+    start = (center_x, center_y)
+    if not (0 <= goal[0] < rows and 0 <= goal[1] < cols):
+        return None
+    if grid[start] != 1 or grid[goal] != 1:
+        return None
+
+    def passable(row, col):
+        return 0 <= row < rows and 0 <= col < cols and grid[row][col] == 1
+
+    visited = {start}
+    queue = deque([(start, None)])
+
+    while queue:
+        loc, first_dir = queue.popleft()
+        if loc == goal:
+            return first_dir
+
+        ordered_dirs = sorted(
+            enumerate(DIRECTION_DELTAS, start=1),
+            key=lambda item: (loc[0] + item[1][0] - goal[0]) ** 2 + (loc[1] + item[1][1] - goal[1]) ** 2,
+        )
+        for direction, (dx, dy) in ordered_dirs:
+            nx, ny = loc[0] + dx, loc[1] + dy
+            if not passable(nx, ny) or (nx, ny) in visited:
+                continue
+            if dx != 0 and dy != 0 and (not passable(loc[0] + dx, loc[1]) or not passable(loc[0], loc[1] + dy)):
+                continue
+
+            visited.add((nx, ny))
+            queue.append(((nx, ny), first_dir or direction))
+
+    return None
 
 
 def bfs_from_center_to_goal(map, goal):
@@ -183,12 +250,12 @@ def get_grid_relative_pos_info(hero_grid_pos, other_grid_pos, grid):
     """
 
     rel_pos = RelativePosition()
-    rel_pos.direction = get_direction(hero_grid_pos, other_grid_pos)
+    goal = get_relative_grid_pos(hero_grid_pos, other_grid_pos, Config.VIEW_SIZE)
+    path_direction = bfs_next_direction(grid, goal)
+    rel_pos.direction = path_direction or get_direction(hero_grid_pos, other_grid_pos)
     rel_pos.l2_distance = ln_distance(hero_grid_pos.x, hero_grid_pos.z, other_grid_pos.x, other_grid_pos.z, 2)
     rel_pos.path_distance = 0
-    rel_pos.grid_distance = bfs_from_center_to_goal(
-        grid, get_relative_grid_pos(hero_grid_pos, other_grid_pos, Config.VIEW_SIZE)
-    )
+    rel_pos.grid_distance = bfs_from_center_to_goal(grid, goal)
 
     return rel_pos
 
@@ -293,6 +360,29 @@ def init_memory_map():
     return np.zeros((128, 128))
 
 
+def load_static_treasure_positions():
+    if treasure_data is None:
+        return {}
+
+    if hasattr(treasure_data, "convert_to_raw_dict"):
+        raw_data = treasure_data.convert_to_raw_dict()
+    else:
+        raw_data = dict(treasure_data)
+
+    return {int(config_id): (int(pos[0]), int(pos[1])) for config_id, pos in raw_data.items()}
+
+
+STATIC_TREASURE_POSITIONS = load_static_treasure_positions()
+
+
+def get_config_id_by_world_pos(pos):
+    pos_tuple = (int(pos.x), int(pos.z))
+    for config_id, world_pos in STATIC_TREASURE_POSITIONS.items():
+        if world_pos == pos_tuple:
+            return config_id
+    return None
+
+
 class Preprocessor:
     def __init__(self):
 
@@ -306,6 +396,10 @@ class Preprocessor:
         self.recent_position_max = 100
         self.recent_positions = deque(maxlen=self.recent_position_max)
         self.last_pos = None
+        self.known_treasure_ids = set()
+        self.collected_treasure_ids = set()
+        self.start_config_id = None
+        self.end_config_id = None
 
     def update_position(self, hero_grid_pos):
         # If the queue is full, reduce the count of the oldest position
@@ -343,6 +437,8 @@ class Preprocessor:
 
         start_grid_pos = get_grid_pos(state_env_info.game_info.start_pos.x, state_env_info.game_info.start_pos.z)
         end_grid_pos = get_grid_pos(state_env_info.game_info.end_pos.x, state_env_info.game_info.end_pos.z)
+        self.start_config_id = self.start_config_id or get_config_id_by_world_pos(state_env_info.game_info.start_pos)
+        self.end_config_id = self.end_config_id or get_config_id_by_world_pos(state_env_info.game_info.end_pos)
         start_pos = get_grid_relative_pos_info(hero_grid_pos, start_grid_pos, grid)
         end_pos = get_grid_relative_pos_info(hero_grid_pos, end_grid_pos, grid)
         treasure_collected_count = state_env_info.game_info.treasure_collected_count
@@ -350,6 +446,14 @@ class Preprocessor:
 
         treasure_pos = [get_null_relative_pos() for _ in range(15)]
         treasure_grids = set()
+
+        candidate_treasure_ids = {
+            config_id
+            for config_id in STATIC_TREASURE_POSITIONS
+            if config_id not in (0, self.start_config_id, self.end_config_id)
+        }
+        if treasure_count >= len(candidate_treasure_ids):
+            self.known_treasure_ids.update(candidate_treasure_ids)
 
         organs = state_env_info.frame_state.organs
         for organ in organs:
@@ -368,12 +472,32 @@ class Preprocessor:
             elif organ.sub_type == 1:
                 # treasure
                 # 宝箱
+                config_id = int(organ.config_id)
                 if organ.status == 1:
                     # Desirable
                     # 可取
                     organ_grid_pos = get_grid_pos(organ.pos.x, organ.pos.z)
-                    treasure_pos[organ.config_id - 1] = get_grid_relative_pos_info(hero_grid_pos, organ_grid_pos, grid)
+                    treasure_pos[config_id - 1] = get_grid_relative_pos_info(hero_grid_pos, organ_grid_pos, grid)
                     treasure_grids.add((organ_grid_pos.x, organ_grid_pos.z))
+                    self.known_treasure_ids.add(config_id)
+                    self.collected_treasure_ids.discard(config_id)
+                else:
+                    self.collected_treasure_ids.add(config_id)
+
+        if treasure_count > 0 and treasure_collected_count >= treasure_count:
+            self.collected_treasure_ids.update(self.known_treasure_ids)
+
+        for config_id in sorted(self.known_treasure_ids):
+            if config_id in self.collected_treasure_ids or not (1 <= config_id <= len(treasure_pos)):
+                continue
+            if treasure_pos[config_id - 1].direction != RelativeDirection.RELATIVE_DIRECTION_NONE:
+                continue
+            if config_id not in STATIC_TREASURE_POSITIONS:
+                continue
+            organ_x, organ_z = STATIC_TREASURE_POSITIONS[config_id]
+            organ_grid_pos = get_grid_pos(organ_x, organ_z)
+            treasure_pos[config_id - 1] = get_grid_relative_pos_info(hero_grid_pos, organ_grid_pos, grid)
+            treasure_grids.add((organ_grid_pos.x, organ_grid_pos.z))
 
         grid_pos_x, grid_pos_z = hero_grid_pos.x, hero_grid_pos.z
 

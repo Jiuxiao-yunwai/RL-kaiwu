@@ -12,6 +12,7 @@ import time
 import os
 import numpy as np
 import torch
+import torch.nn.functional as F
 from copy import deepcopy
 from agent_target_dqn.model.model import Model
 from agent_target_dqn.conf.conf import Config
@@ -30,9 +31,7 @@ class Algorithm:
         self.obs_split = Config.DESC_OBS_SPLIT
         self._gamma = Config.GAMMA
         self.lr = Config.START_LR
-        self.epsilon_start = Config.EPSILON
-        self.epsilon_min = Config.EPSILON_MIN
-        self.max_grad_norm = Config.MAX_GRAD_NORM
+        self.min_epsilon = Config.MIN_EPSILON
         self.device = device
         self.model = Model(
             state_shape=self.obs_shape,
@@ -40,8 +39,13 @@ class Algorithm:
             softmax=False,
         )
         self.model.to(self.device)
-        self.optim = torch.optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=1e-5)
+        self.optim = torch.optim.AdamW(
+            self.model.parameters(),
+            lr=self.lr,
+            weight_decay=Config.WEIGHT_DECAY,
+        )
         self.target_model = deepcopy(self.model)
+        self.target_model.to(self.device)
         self.train_step = 0
         self.predict_count = 0
         self.last_report_monitor_time = 0
@@ -56,6 +60,7 @@ class Algorithm:
                 return [row[0]] * self.direction_space + [row[1]] * self.talent_direction
             if len(row) == self.act_shape:
                 return row
+
             padded = [1.0] * self.act_shape
             copy_size = min(len(row), self.act_shape)
             padded[:copy_size] = row[:copy_size]
@@ -78,8 +83,51 @@ class Algorithm:
         return legal
 
     def _current_epsilon(self):
-        progress = min(1.0, self.predict_count / max(1, self.egp))
-        return self.epsilon_min + (self.epsilon_start - self.epsilon_min) * (1.0 - progress)
+        decay_steps = max(float(self.egp), 1.0)
+        progress = min(1.0, self.predict_count / decay_steps)
+        return max(self.min_epsilon, Config.EPSILON - (Config.EPSILON - self.min_epsilon) * progress)
+
+    def _build_target_bias(self, list_obs_data, exploit_flag=False):
+        batch = len(list_obs_data)
+        bias = torch.zeros((batch, self.act_shape), dtype=torch.float32, device=self.device)
+        move_weight = Config.EXPLOIT_TARGET_BIAS if exploit_flag else Config.TRAIN_TARGET_BIAS
+        talent_weight = Config.EXPLOIT_TALENT_BIAS if exploit_flag else Config.TRAIN_TALENT_BIAS
+
+        for row, obs_data in enumerate(list_obs_data):
+            direction = int(getattr(obs_data, "target_direction", 0) or 0)
+            if not 1 <= direction <= self.direction_space:
+                continue
+
+            target_action = direction - 1
+            target_distance = getattr(obs_data, "target_distance", 0)
+            try:
+                target_distance = float(target_distance)
+            except (TypeError, ValueError):
+                target_distance = 0
+
+            for action in range(self.direction_space):
+                diff = abs(action - target_action)
+                circular_diff = min(diff, self.direction_space - diff)
+                closeness = max(0.0, 1.0 - circular_diff / (self.direction_space / 2))
+                bias[row, action] += move_weight * closeness
+
+                talent_action = action + self.direction_space
+                if target_distance >= Config.TALENT_MIN_TARGET_DISTANCE:
+                    bias[row, talent_action] += talent_weight * closeness
+                else:
+                    bias[row, talent_action] -= Config.NEAR_TARGET_TALENT_PENALTY * closeness
+
+        return bias
+
+    def _sample_exploration_actions(self, legal_act, target_bias):
+        if np.random.rand() < Config.GUIDED_EXPLORATION_PROBABILITY:
+            scores = target_bias + torch.rand_like(target_bias) * Config.GUIDED_EXPLORATION_NOISE
+            scores = scores.masked_fill(~legal_act, -1e9)
+            return scores.argmax(dim=1).cpu().view(-1, 1).tolist()
+
+        probs = legal_act.float()
+        probs = probs / probs.sum(dim=1, keepdim=True).clamp_min(1.0)
+        return torch.multinomial(probs, num_samples=1).cpu().tolist()
 
     def learn(self, list_sample_data):
 
@@ -110,25 +158,29 @@ class Algorithm:
             self.__convert_to_tensor(_batch_feature_map).view(batch, *self.obs_split[1]),
         ]
 
+        self.model.eval()
+        self.target_model.eval()
         with torch.no_grad():
-            online_q, _ = self.model(_batch_feature, state=None)
-            online_q = online_q.masked_fill(~_batch_obs_legal, -1e9)
-            next_action = online_q.argmax(dim=1, keepdim=True)
+            next_q_online, _ = self.model(_batch_feature, state=None)
+            next_q_online = next_q_online.masked_fill(~_batch_obs_legal, -1e9)
+            next_action = next_q_online.argmax(dim=1, keepdim=True)
 
-            self.target_model.eval()
-            target_next_q, _ = self.target_model(_batch_feature, state=None)
-            q_max = target_next_q.gather(1, next_action).view(-1).detach()
+            next_q_target, _ = self.target_model(_batch_feature, state=None)
+            next_q_target = next_q_target.masked_fill(~_batch_obs_legal, -1e9)
+            q_max = next_q_target.gather(1, next_action).view(-1).detach()
 
         target_q = rew + self._gamma * q_max * not_done
 
         self.optim.zero_grad()
 
-        self.model.train()
-        logits, h = self.model(batch_feature, state=None)
+        model = getattr(self, "model")
+        model.train()
+        logits, h = model(batch_feature, state=None)
 
-        loss = torch.nn.functional.smooth_l1_loss(logits.gather(1, batch_action).view(-1), target_q)
+        q_pred = logits.gather(1, batch_action).view(-1)
+        loss = F.smooth_l1_loss(q_pred, target_q)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), Config.GRAD_CLIP_NORM)
         self.optim.step()
 
         self.train_step += 1
@@ -139,7 +191,7 @@ class Algorithm:
             self.update_target_q()
 
         value_loss = loss.detach().item()
-        q_value = target_q.mean().detach().item()
+        q_value = q_pred.mean().detach().item()
         reward = rew.mean().detach().item()
 
         # Periodically report monitoring
@@ -150,6 +202,7 @@ class Algorithm:
                 "value_loss": value_loss,
                 "q_value": q_value,
                 "reward": reward,
+                "epsilon": self.epsilon,
             }
             if self.monitor:
                 self.monitor.put_data({os.getpid(): monitor_data})
@@ -167,35 +220,34 @@ class Algorithm:
         else:
             raise TypeError(f"Unsupported data type: {type(data)}")
 
-        tensor = torch.stack([torch.tensor(item) for item in data]).to(self.device)
+        tensor = torch.stack([torch.as_tensor(item, dtype=torch.float32) for item in data]).to(self.device)
         return tensor
 
     def predict_detail(self, list_obs_data, exploit_flag=False):
         batch = len(list_obs_data)
         feature_vec = [obs_data.feature[: self.obs_split[0]] for obs_data in list_obs_data]
         feature_map = [obs_data.feature[self.obs_split[0] :] for obs_data in list_obs_data]
-        legal_act = [obs_data.legal_act for obs_data in list_obs_data]
+        legal_act = [getattr(obs_data, "action_mask", None) or obs_data.legal_act for obs_data in list_obs_data]
         legal_act = self._legal_to_mask(legal_act)
         model = self.model
         model.eval()
         # Exploration factor,
         # we want epsilon to decrease as the number of prediction steps increases, until it reaches 0.1
         # 探索因子, 我们希望epsilon随着预测步数越来越小，直到0.1为止
-        self.epsilon = self.epsilon_min if exploit_flag else self._current_epsilon()
+        self.epsilon = self._current_epsilon()
+        target_bias = self._build_target_bias(list_obs_data, exploit_flag=exploit_flag)
 
         with torch.no_grad():
             # epsilon greedy
-            if not exploit_flag and np.random.rand(1) < self.epsilon:
-                random_action = np.random.rand(batch, self.act_shape)
-                random_action = torch.tensor(random_action, dtype=torch.float32).to(self.device)
-                random_action = random_action.masked_fill(~legal_act, -1e9)
-                act = random_action.argmax(dim=1).cpu().view(-1, 1).tolist()
+            if not exploit_flag and np.random.rand() < self.epsilon:
+                act = self._sample_exploration_actions(legal_act, target_bias)
             else:
                 feature = [
                     self.__convert_to_tensor(feature_vec),
                     self.__convert_to_tensor(feature_map).view(batch, *self.obs_split[1]),
                 ]
                 logits, _ = model(feature, state=None)
+                logits = logits + target_bias
                 logits = logits.masked_fill(~legal_act, -1e9)
                 act = logits.argmax(dim=1).cpu().view(-1, 1).tolist()
 

@@ -64,6 +64,7 @@ def workflow(envs, agents, logger=None, monitor=None):
         # 游戏循环
         done = False
         current_score = 0
+        current_treasure_collected = 0
         while not done:
             # Agent 进行推理, 获取下一帧的预测动作
             act_data, model_version = agent.exploit(list_obs_data=[obs_data])
@@ -84,19 +85,21 @@ def workflow(envs, agents, logger=None, monitor=None):
 
             # 判断游戏结束, 并更新胜利次数
             done = terminated or truncated
-            logger.info(f"env.step return done, terminated: {terminated}, truncated: {truncated}, so break")
+            if done:
+                logger.info(f"env.step return done, terminated: {terminated}, truncated: {truncated}, so break")
             if terminated:
                 win_cnt += 1
 
             # 更新总奖励和状态
             current_score = score.total_score
+            current_treasure_collected = _obs.game_info.treasure_collected_count
             obs_data = _obs_data
 
         # 更新总奖励和状态
         total_score += current_score
 
         # 更新宝箱收集数量
-        treasure_cnt += _obs.game_info.treasure_count
+        treasure_cnt += current_treasure_collected
 
         episode += 1
 

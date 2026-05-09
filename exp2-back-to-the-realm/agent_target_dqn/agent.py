@@ -9,11 +9,12 @@ Author: Tencent AI Arena Authors
 
 
 import torch
+import math
 
 torch.set_num_threads(1)
 torch.set_num_interop_threads(1)
 
-from agent_target_dqn.feature.definition import ObsData
+from agent_target_dqn.feature.definition import ObsData, relative_progress_distance, select_progress_target
 from agent_target_dqn.conf.conf import Config
 import numpy as np
 from kaiwu_agent.agent.base_agent import (
@@ -61,33 +62,45 @@ def read_relative_position(rel_pos):
     """
     direction = [0] * 8
     if rel_pos.direction != RelativeDirection.RELATIVE_DIRECTION_NONE:
-        direction[rel_pos.direction - 1] = 1
+        # Defensive guard for direction range:
+        # protocol currently defines valid directions as 1..8, and NONE as a dedicated enum value.
+        # We keep old behavior for valid values and ignore unexpected values instead of raising IndexError.
+        # 方向健壮性保护：协议中有效方向是1..8，NONE是单独枚举。
+        # 对合法值保持原逻辑；对异常值不抛异常，避免训练过程中因脏数据中断。
+        if 1 <= rel_pos.direction <= 8:
+            direction[rel_pos.direction - 1] = 1
 
-    grid_distance = 1 if rel_pos.grid_distance < 0 else min(rel_pos.grid_distance / 256, 1)
+    if rel_pos.direction == RelativeDirection.RELATIVE_DIRECTION_NONE:
+        grid_distance = 1
+    elif rel_pos.grid_distance >= 0:
+        grid_distance = min(1, rel_pos.grid_distance / (Config.VIEW_SIZE * math.sqrt(2)))
+    else:
+        grid_distance = min(1, rel_pos.l2_distance / (128 * math.sqrt(2)))
     feature = direction + [grid_distance]
     return feature
 
 
 ACTION_DIRECTION_DELTAS = [
-    (0, 1),    # Angle_0, world x+
-    (1, 1),    # Angle_45
-    (1, 0),    # Angle_90, world z+
-    (1, -1),   # Angle_135
-    (0, -1),   # Angle_180
-    (-1, -1),  # Angle_225
-    (-1, 0),   # Angle_270
-    (-1, 1),   # Angle_315
+    (0, 1),  # East
+    (1, 1),  # NorthEast
+    (1, 0),  # North
+    (1, -1),  # NorthWest
+    (0, -1),  # West
+    (-1, -1),  # SouthWest
+    (-1, 0),  # South
+    (-1, 1),  # SouthEast
 ]
 
 
 def build_wall_aware_legal_act(raw_legal_act, obstacle_map):
     """
-    Convert the environment legal action into a 16-dimension mask and block directions
-    whose next two grids are unsafe.
-    将环境合法动作转换为16维掩码，并屏蔽前方两格不安全的方向。
+    Convert env legal_act into a runtime-only 16-dimension action mask and block directions
+    whose next grid is an obstacle in the local 51x51 map.
+
+    将环境 legal_act 转成仅推理使用的 16 维动作掩码，并屏蔽下一格是障碍物的方向。
     """
     raw_legal_act = list(raw_legal_act) if raw_legal_act else [1, 0]
-    if len(raw_legal_act) >= 16:
+    if len(raw_legal_act) >= Config.DIM_OF_ACTION_DIRECTION + Config.DIM_OF_TALENT:
         base_move = raw_legal_act[: Config.DIM_OF_ACTION_DIRECTION]
         base_talent = raw_legal_act[
             Config.DIM_OF_ACTION_DIRECTION : Config.DIM_OF_ACTION_DIRECTION + Config.DIM_OF_TALENT
@@ -107,27 +120,20 @@ def build_wall_aware_legal_act(raw_legal_act, obstacle_map):
 
     direction_mask = []
     for row_delta, col_delta in ACTION_DIRECTION_DELTAS:
-        safe = True
-        for step in range(1, Config.ACTION_MASK_LOOKAHEAD + 1):
-            row = center + row_delta * step
-            col = center + col_delta * step
-            if not passable(row, col):
-                safe = False
-                break
-            if row_delta != 0 and col_delta != 0:
-                if not passable(center + row_delta * step, center) or not passable(center, center + col_delta * step):
-                    safe = False
-                    break
+        next_row = center + row_delta
+        next_col = center + col_delta
+        safe = passable(next_row, next_col)
+        if safe and row_delta != 0 and col_delta != 0:
+            safe = passable(center + row_delta, center) and passable(center, center + col_delta)
         direction_mask.append(1 if safe else 0)
 
-    if not any(direction_mask):
-        direction_mask = [1] * Config.DIM_OF_ACTION_DIRECTION
-
     move_mask = [int(base_move[i] and direction_mask[i]) for i in range(Config.DIM_OF_ACTION_DIRECTION)]
-    talent_mask = [int(base_talent[i]) for i in range(Config.DIM_OF_TALENT)]
+    talent_mask = [int(base_talent[i] and direction_mask[i]) for i in range(Config.DIM_OF_TALENT)]
 
     if not any(move_mask) and any(base_move):
         move_mask = [int(v) for v in base_move]
+    if not any(talent_mask) and any(base_talent):
+        talent_mask = [int(v) for v in base_talent]
     return move_mask + talent_mask
 
 
@@ -258,6 +264,20 @@ class Agent(BaseAgent):
         if raw_obs:
             talent_availability = raw_obs.frame_state.heroes[0].talent.status
 
+        # Feature processing 7: Current progress target.
+        # Before all treasures are collected, target the nearest known active treasure;
+        # after full collection, switch to the end point.
+        # 特征处理7：当前进度目标。收齐宝箱前瞄准最近的已知可取宝箱，收齐后切换到终点。
+        target_kind, _, target_pos = select_progress_target(
+            treasure_pos_list,
+            end_pos,
+            treasure_collected_count,
+            treasure_count,
+        )
+        end_pos_features = read_relative_position(target_pos)
+        target_direction = target_pos.direction if target_pos else RelativeDirection.RELATIVE_DIRECTION_NONE
+        target_distance = relative_progress_distance(target_pos)
+
         # Feature concatenation:
         # Concatenate all necessary features as vector features (2 + 128*2 + 9  + 9*15 + 2 + 4*51*51 = 10808)
         # 特征拼接：将所有需要的特征进行拼接作为向量特征 (2 + 128*2 + 9  + 9*15 + 2 + 4*51*51 = 10808)
@@ -267,7 +287,16 @@ class Agent(BaseAgent):
         feature_map = obstacle_map + end_map + treasure_map + memory_map
         # Legal actions
         # 合法动作
-        legal_act = build_wall_aware_legal_act(raw_obs.legal_act, obstacle_map)
+        legal_act = list(raw_obs.legal_act) if raw_obs.legal_act else [1, 0]
+        if len(legal_act) != Config.LEGAL_ACTION_SHAPE:
+            move_legal = int(any(legal_act[: Config.DIM_OF_ACTION_DIRECTION])) if legal_act else 1
+            talent_legal = (
+                int(any(legal_act[Config.DIM_OF_ACTION_DIRECTION : Config.DIM_OF_ACTION_DIRECTION + Config.DIM_OF_TALENT]))
+                if len(legal_act) > Config.DIM_OF_ACTION_DIRECTION
+                else 0
+            )
+            legal_act = [move_legal, talent_legal]
+        action_mask = build_wall_aware_legal_act(raw_obs.legal_act, obstacle_map)
 
         remain_info = {
             "memory_map": memory_map,
@@ -279,4 +308,14 @@ class Agent(BaseAgent):
             "treasure_count": treasure_count,
         }
 
-        return ObsData(feature=feature_vec + feature_map, legal_act=legal_act), remain_info
+        return (
+            ObsData(
+                feature=feature_vec + feature_map,
+                legal_act=legal_act,
+                action_mask=action_mask,
+                target_direction=target_direction,
+                target_distance=target_distance,
+                target_is_end=(target_kind == "end"),
+            ),
+            remain_info,
+        )
