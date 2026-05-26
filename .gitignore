@@ -1,5 +1,19 @@
 ref/
 
+# Project runtime artifacts
+**/log/
+**/logs/
+**/ckpt/
+**/checkpoint/
+**/runs/
+**/tensorboard/
+**/model.ckpt-*
+*.onnx
+*.tflite
+
+# Generated document previews
+**/docs/render_*/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
